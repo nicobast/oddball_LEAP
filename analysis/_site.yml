@@ -1,0 +1,17 @@
+name: "project_oddball_LEAP"
+output_dir: ../docs
+navbar:
+  title: "project_oddball_LEAP"
+  left:
+  - text: Home
+    href: index.html
+  - text: About
+    href: about.html
+  - text: License
+    href: license.html
+output:
+  workflowr::wflow_html:
+    toc: yes
+    toc_float: yes
+    theme: cosmo
+    highlight: textmate
