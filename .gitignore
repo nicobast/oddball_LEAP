@@ -9,3 +9,9 @@ analysis/*png
 analysis/*html
 analysis/*_cache
 analysis/site_libs
+data/*
+data/
+docs/site_libs/
+.PowerFolder/
+manuscript/
+output/
