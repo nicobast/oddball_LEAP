@@ -1,0 +1,1 @@
+this is the "trial function" from larger matlab script of the eye-tracking battery. The code that runs on trial (or in this case, one block) of a task. It won't run on its own without the rest of the task engine framework, but it contains all of the parameters and would be easy to recode into a standalone script

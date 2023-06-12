@@ -35,6 +35,7 @@ require(ggplot2) #visualization
 require(gridExtra)
 
 require(DescTools) #AUC function
+require(performance) #r²_nakagawa - marginalized and conditionalk R²
 
 # require(parallel)#
 # require(doSNOW)
@@ -1100,7 +1101,7 @@ df_trial<-merge(df_trial,df_timepoint_merge,by='id')
   with(df_trial,hist(trial_duration[trial_duration<0.7],30))
   with(df_trial,hist(number_of_samples,30))
 
-  ### - PUPILLARY RESPONSE ####
+  ### - SEPR - PUPILLARY RESPONSE ####
 
   ###polynomial fit of trial counter
   lmm<-lmer(scale(rpd_auc)~EventData*scale(EventCounter)+
@@ -1117,17 +1118,15 @@ df_trial<-merge(df_trial,df_timepoint_merge,by='id')
 
   #pupillary response - technical model
   lmm<-lmer(scale(rpd_auc)~EventData+
-              scale(ageyrs)+scale(t1_piq)+sex+
-              sampling_rate+
-              scale(center_dev)+scale(missing_data_trial)+
               (1|subjects)+(1|wave),data=df_trial)
 
   anova(lmm)
   contrast(emmeans(lmm,~EventData),'revpairwise')
 
+
         #predicted values
         predicted_rpd<-predict(lmm)
-        predicted_rpd_mean<-as.numeric(with(df_trial,by(predicted_rpd,interaction(id,EventData),mean)))
+        predicted_rpd_mean<-as.numeric(with(df_trial,by(predicted_rpd,interaction(id,EventData),median)))
         predicted_rpd_group<-as.factor(with(df_trial,by(t1_diagnosis,interaction(id,EventData),head,n=1)))
         predicted_rpd_eventdata<-as.factor(with(df_trial,by(EventData,interaction(id,EventData),head,n=1)))
         # levels(predicted_rpd_eventdata)<-c('low-utility','high-utility')
@@ -1247,8 +1246,6 @@ df_trial<-merge(df_trial,df_timepoint_merge,by='id')
     #covariate effects
     round(fixef(lmm)['sequence_position'],5) #positive --> in Bayesian modelling relates to PREDICTABILITY/CERTAINTY
     round(fixef(lmm)['EventCounter'],5) #negative --> in Bayesian modelling - direction of precision weighting
-    round(fixef(lmm)['scale(missing_data_trial)'],5) #negative
-
 
       #cbind(round(fixef(lmm)['scale(t1_ageyrs)'],2),round(confint(lmm,parm = 'scale(t1_ageyrs)'),2))
       ### --> higher age with lower response: beta: -0.14 [-0.19; -0.10]
@@ -1383,27 +1380,102 @@ df_trial<-merge(df_trial,df_timepoint_merge,by='id')
       table(df_trial$wave)
       table(df_dem$timepoints)
 
+      #select only individuals that have both waves
       subjects_with_both_waves<-df_dem$subjects[df_dem$timepoints=='wave1+2']
       df_trial_wave12<-df_trial[df_trial$subjects %in% subjects_with_both_waves,]
-      lmm<-lmer(scale(rpd_auc)~wave*EventData*EventCounter+
+
+      #response to standards
+      lmm<-lmer(scale(rpd_auc.201)~wave+EventCounter+
                   # scale(t1_ageyrs)+scale(t1_piq)+t1_sex+
                   # as.factor(sampling_rate)+scale(center_dev)+scale(missing_data_trial)+
                   (1|subjects),data=df_trial_wave12)
       anova(lmm)
-      ##does not differ by wave
+      contrast(emmeans(lmm,~wave),'pairwise')
+      ###--> lower response to standards in wave 2
+
+      #response to pitch oddballs
+      lmm<-lmer(scale(rpd_auc.202)~wave+EventCounter+
+                  # scale(t1_ageyrs)+scale(t1_piq)+t1_sex+
+                  # as.factor(sampling_rate)+scale(center_dev)+scale(missing_data_trial)+
+                  (1|subjects),data=df_trial_wave12)
+      anova(lmm)
+      contrast(emmeans(lmm,~wave),'pairwise')
+      ###--> higher response to pitches in wave 2
+
+      #response to length oddballs
+      lmm<-lmer(scale(rpd_auc.203)~wave+EventCounter+
+                  # scale(t1_ageyrs)+scale(t1_piq)+t1_sex+
+                  # as.factor(sampling_rate)+scale(center_dev)+scale(missing_data_trial)+
+                  (1|subjects),data=df_trial_wave12)
+      anova(lmm)
+      contrast(emmeans(lmm,~wave),'pairwise')
+      ###--> lower response to length oddballs in wave 2
+
+      #response to length oddballs
+      lmm<-lmer(scale(rpd_auc.204)~wave+EventCounter+
+                  # scale(t1_ageyrs)+scale(t1_piq)+t1_sex+
+                  # as.factor(sampling_rate)+scale(center_dev)+scale(missing_data_trial)+
+                  (1|subjects),data=df_trial_wave12)
+      anova(lmm)
+      contrast(emmeans(lmm,~wave),'pairwise')
+      ###--> lower response to length+pitch oddballs in wave 2
+
+
+
 
       lmm<-lmer(scale(pd_baseline)~wave*EventData*EventCounter+
                   # scale(t1_ageyrs)+scale(t1_piq)+t1_sex+
                   # as.factor(sampling_rate)+scale(center_dev)+scale(missing_data_trial)+
                   (1|subjects),data=df_trial_wave12)
       anova(lmm)
-      fixef(lmm)['wavewave2']
+
+      cbind(round(fixef(lmm)['wavewave2'],2),
+            round(confint(lmm,parm = 'wavewave2'),2))
       ###reduction in baseline PD across waves
 
-  ### - baseline progression ####
+
+    #### --> ICC across waves ####
+
+      table(df_trial_wave12$wave)
+
+      #BPS
+      baseline_pd_wave1<-with(df_trial_wave12[df_trial_wave12$wave=='wave1',],aggregate(pd_baseline,by=list(subjects),FUN=mean,na.rm=T))
+      baseline_pd_wave2<-with(df_trial_wave12[df_trial_wave12$wave=='wave2',],aggregate(pd_baseline,by=list(subjects),FUN=mean,na.rm=T))
+      names(baseline_pd_wave1)<-c('subjects','wave1')
+      names(baseline_pd_wave2)<-c('subjects','wave2')
+
+      baseline_pd_waves<-merge(baseline_pd_wave1,baseline_pd_wave2,by='subjects')
+
+      cor.test(baseline_pd_waves$wave1,baseline_pd_waves$wave2)
+
+      psych::ICC(baseline_pd_waves[,-1])
+      ###--> ICC: 0.88 [0.81, 0.93]
+
+
+      #SEPR
+      names(df_trial_wave12)
+
+      rpd204_wave1<-with(df_trial_wave12[df_trial_wave12$EventData=='204' & df_trial_wave12$wave=='wave1',],aggregate(rpd_auc.204,by=list(subjects),FUN=mean,na.rm=T))
+      rpd204_wave2<-with(df_trial_wave12[df_trial_wave12$EventData=='204' & df_trial_wave12$wave=='wave2',],aggregate(rpd_auc.204,by=list(subjects),FUN=mean,na.rm=T))
+
+      names(rpd204_wave1)<-c('subjects','wave1')
+      names(rpd204_wave2)<-c('subjects','wave2')
+
+      rpd_waves<-merge(rpd204_wave1,rpd204_wave2,by='subjects')
+
+      cor.test(rpd_waves$wave1,rpd_waves$wave2)
+      ##--> r =.23
+
+      psych::ICC(rpd_waves[,-1])
+      ###--> ICC: 0.37 [-0.01, 0.60]
+
+
+
+
+  ### - BPS - baseline progression ####
   #lmm_data<-df_trial[df_trial$EventData=='201' & !is.na(missing_data_trial) & !is.na(center_dev) & !is.na(pd_baseline) & !is.na(t1_piq),]
 
-  #response as a function of basleine
+  #response as a function of baseline
   lmm<-lmer(scale(rpd_auc)~EventData*scale(pd_baseline)*(sequence_position+EventCounter)+
               # scale(ageyrs)+scale(t1_piq)+sex+
               # as.factor(sampling_rate)+scale(center_dev)+scale(missing_data_trial)+
@@ -1415,8 +1487,8 @@ df_trial<-merge(df_trial,df_timepoint_merge,by='id')
 
 
   lmm<-lmer(scale(pd_baseline)~EventData*t1_diagnosis*(sequence_position+EventCounter)+
-              scale(ageyrs)+scale(t1_piq)+sex+
-              as.factor(sampling_rate)+scale(center_dev)+scale(missing_data_trial)+
+              # scale(ageyrs)+scale(t1_piq)+sex+
+              # as.factor(sampling_rate)+scale(center_dev)+scale(missing_data_trial)+
               (1|subjects)+(1|wave),data=df_trial)
 
   anova(lmm)
@@ -1424,6 +1496,20 @@ df_trial<-merge(df_trial,df_timepoint_merge,by='id')
   fixef(lmm)['EventCounter']
   emtrends(lmm,~t1_diagnosis,var='EventCounter')
   emtrends(lmm,~t1_diagnosis,var='sequence_position')
+
+        #Bayes factor based on BIC - Wagenmakers 2007 - http://www.ejwagenmakers.com/2007/pValueProblems.pdf
+        ###approximation of Bayesian without definition of priors (i.e. flat priors)
+        full_lmm<-lme4::lmer(scale(pd_baseline)~EventData*t1_diagnosis*(sequence_position+EventCounter)+
+                               # scale(ageyrs)+scale(t1_piq)+sex+
+                               # scale(center_dev)+
+                               #as.factor(sampling_rate)+scale(missing_data_trial)+
+                               (1|subjects)+(1|wave),data=df_trial,REML=F)
+        anova(full_lmm)
+        null_lmm <- update(full_lmm, formula = ~ . -t1_diagnosis:EventData:EventCounter)
+        BF_BIC <- exp((BIC(full_lmm) - BIC(null_lmm))/2)  # BICs to Bayes factor
+        BF_BIC
+        #### high evidence --> however inclusion of covariates makes a big difference
+
 
 
   #main effects
@@ -1463,7 +1549,6 @@ df_trial<-merge(df_trial,df_timepoint_merge,by='id')
     theme_bw()
 
 
-
   #plot interaction
   model_plot_data<-as.data.frame(emmeans(lmm,~t1_diagnosis+EventCounter,
                                          at=list(EventCounter = seq(1,1400,70))))
@@ -1479,26 +1564,124 @@ df_trial<-merge(df_trial,df_timepoint_merge,by='id')
 
   grid.arrange(g1,g2)
 
+  ###plot observed pupil size
+  require(ggplot2)
+  ggplot(df_trial,aes(x=EventCounter,y=scale(pd_baseline),group=EventData,color=EventData))+geom_smooth(method='lm')+theme_bw()
+
+
   ### - clinical associations ####
 
+  ###---> SEPR ####
   df_trial$ssp_total_scaled<-scale(df_trial$ssp_total)
-  lmm<-lmer(scale(rpd_auc)~EventData*ssp_total_scaled*(sequence_position+EventCounter)+
+  lmm<-lmer(scale(rpd_auc)~EventData*ssp_total_scaled*EventCounter+
               # scale(t1_ageyrs)+scale(t1_piq)+t1_sex+
               # as.factor(sampling_rate)+scale(center_dev)+scale(missing_data_trial)+
               (1|subjects)+(1|wave),data=df_trial)
 
   anova(lmm)
+  fixef(lmm)
+
   emtrends(lmm,~EventData|EventCounter,var='ssp_total_scaled',at=list(EventCounter = seq(1,1400,140)))
   ####--> higher SSP is associated increased reaction to oddball in the first half of the task
 
+  names(df_trial)
+
+  df_trial$anx_beck<-with(df_trial,ifelse(!is.na(t1_beck_anx_adulta_self),t1_beck_anx_adulta_self,
+                               ifelse(!is.na(t1_beck_anx_youthb_self),t1_beck_anx_youthb_self,t1_beck_anx_youthcd_parent)))
   df_trial$anx_beck_scaled<-scale(df_trial$anx_beck)
-  lmm<-lmer(scale(rpd_response)~EventData*anx_beck_scaled*(sequence_position+EventCounter)+
+
+  lmm<-lmer(scale(rpd_auc)~EventData*anx_beck_scaled*EventCounter+
               # scale(t1_ageyrs)+scale(t1_piq)+t1_sex+
               # as.factor(sampling_rate)+scale(center_dev)+scale(missing_data_trial)+
               (1|subjects)+(1|wave),data=df_trial)
 
   anova(lmm)
   ###--> no effect
+
+
+  df_trial$dep_beck<-with(df_trial,ifelse(!is.na(t1_beck_dep_adulta_self),t1_beck_dep_adulta_self,
+                                          ifelse(!is.na(t1_beck_dep_youthb),t1_beck_dep_youthb,t1_beck_dep_adultd_parent)))
+  df_trial$dep_beck_scaled<-scale(df_trial$dep_beck)
+
+  lmm<-lmer(scale(rpd_auc)~EventData*dep_beck_scaled*EventCounter+
+              # scale(t1_ageyrs)+scale(t1_piq)+t1_sex+
+              # as.factor(sampling_rate)+scale(center_dev)+scale(missing_data_trial)+
+              (1|subjects)+(1|wave),data=df_trial)
+
+  anova(lmm)
+  ###--> no effect
+
+  names(df_trial)
+
+  ##### -- transdiagnostic factors ####
+
+  names(df_trial)
+  table(is.na(df_timepoint$sdq_internalising_p))
+
+  df_trial$sdq_internalising_p_scaled<-scale(df_trial$sdq_internalising_p)
+  df_trial$sdq_externalising_p_scaled<-scale(df_trial$sdq_externalising_p)
+  df_trial$sdq_total_p_scaled<-scale(df_trial$sdq_total_difficulties_p)
+
+  hist(df_trial$sdq_internalising_p_scaled,breaks=10)
+  hist(df_trial$sdq_externalising_p_scaled,breaks=10)
+  hist(df_trial$sdq_total_p_scaled,breaks=10)
+
+
+  lmm<-lmer(scale(rpd_auc)~EventData*sdq_internalising_p_scaled*EventCounter+
+              (1|subjects)+(1|wave),data=df_trial)
+  anova(lmm)
+  #no effect
+
+        ###in ASD
+        lmm<-lmer(scale(rpd_auc)~EventData*sdq_internalising_p_scaled*EventCounter+
+                    (1|subjects)+(1|wave),data=df_trial[df_trial$t1_diagnosis=='ASD',])
+        anova(lmm)
+        #no effect
+
+        ###in TD
+        lmm<-lmer(scale(rpd_auc)~EventData*sdq_internalising_p_scaled*EventCounter+
+                    (1|subjects)+(1|wave),data=df_trial[df_trial$t1_diagnosis=='Control',])
+        anova(lmm)
+        #no effect
+
+
+  lmm<-lmer(scale(rpd_auc)~EventData*sdq_externalising_p_scaled*EventCounter+
+              (1|subjects)+(1|wave),data=df_trial)
+  anova(lmm)
+  #no effect
+
+        ##in ASD
+        lmm<-lmer(scale(rpd_auc)~EventData*sdq_externalising_p_scaled*EventCounter+
+                    (1|subjects)+(1|wave),data=df_trial[df_trial$t1_diagnosis=='ASD',])
+        anova(lmm)
+        #no effectr
+
+        ###in TD ~ n = 31
+        lmm<-lmer(scale(rpd_auc)~EventData*sdq_externalising_p_scaled*EventCounter+
+                    (1|subjects)+(1|wave),data=df_trial[df_trial$t1_diagnosis=='Control',])
+        anova(lmm)
+        #no effect
+
+
+  lmm<-lmer(scale(rpd_auc)~EventData*sdq_total_p_scaled*EventCounter+
+              (1|subjects)+(1|wave),data=df_trial)
+  anova(lmm)
+  #-> no effect
+
+
+        ##in ASD
+        lmm<-lmer(scale(rpd_auc)~EventData*sdq_total_p_scaled*EventCounter+
+                    (1|subjects)+(1|wave),data=df_trial[df_trial$t1_diagnosis=='ASD',])
+        anova(lmm)
+        ##--> no effect
+
+        ###in TD ~ n =31
+        lmm<-lmer(scale(rpd_auc)~EventData*sdq_total_p_scaled*EventCounter+
+                    (1|subjects)+(1|wave),data=df_trial[df_trial$t1_diagnosis=='Control',])
+        anova(lmm)
+        ## --> no effect
+
+
 
   names(df_trial)[grepl('aq',names(df_trial))]
   df_trial$aq_total<-with(df_trial,ifelse(!is.na(t1_aq_adult_total),t1_aq_adult_total,
@@ -1526,6 +1709,392 @@ df_trial<-merge(df_trial,df_timepoint_merge,by='id')
   ###--> no
   plot(emtrends(lmm,~EventData,var='srs_total_z'))
   ####--> in TD: the response to pitch oddball scales with SRS total score
+
+
+
+
+
+
+  names(df_trial)[grepl('aq',names(df_trial))]
+  df_trial$aq_total<-with(df_trial,ifelse(!is.na(t1_aq_adult_total),t1_aq_adult_total,
+                                          ifelse(!is.na(t1_aq_adol_total),t1_aq_adol_total,
+                                                 ifelse(!is.na(t1_aq_child_total),t1_aq_child_total,NA))))
+
+  df_trial$aq_total_z<-scale(df_trial$aq_total)
+  lmm<-lmer(scale(rpd_auc)~EventData*aq_total_z*(sequence_position+EventCounter)+
+              # scale(t1_ageyrs)+scale(t1_piq)+t1_sex+
+              # as.factor(sampling_rate)+scale(center_dev)+scale(missing_data_trial)+
+              (1|subjects),data=df_trial)
+
+  anova(lmm)
+  ###--> no effect
+
+
+  names(df_trial)[grepl('srs',names(df_trial))]
+  df_trial$srs_total_z<-scale(df_trial$srs_rawscore_combined)
+  lmm<-lmer(scale(rpd_auc)~EventData*srs_total_z*(sequence_position+EventCounter)+
+              # scale(t1_ageyrs)+scale(t1_piq)+t1_sex+
+              # as.factor(sampling_rate)+scale(center_dev)+scale(missing_data_trial)+
+              (1|subjects),data=df_trial[df_trial$t1_diagnosis=='Control',])
+
+  anova(lmm)
+  ###--> no
+  plot(emtrends(lmm,~EventData,var='srs_total_z'))
+  ####--> in TD: the response to pitch oddball scales with SRS total score
+
+
+  ###--> BPS ####
+  df_trial$ssp_total_scaled<-scale(df_trial$ssp_total)
+  lmm<-lmer(scale(pd_baseline)~EventData*ssp_total_scaled*EventCounter+
+              # scale(t1_ageyrs)+scale(t1_piq)+t1_sex+
+              # as.factor(sampling_rate)+scale(center_dev)+scale(missing_data_trial)+
+              (1|subjects)+(1|wave),data=df_trial)
+
+  anova(lmm)
+
+  cbind(round(fixef(lmm)['ssp_total_scaled'],2),
+        round(confint(lmm,parm = 'ssp_total_scaled'),2))
+
+  ### higher SSP with higher pd_baseline (beta = 0.21 [0.20, 0.24])
+  emtrends(lmm,~EventCounter,var='ssp_total_scaled',at=list(EventCounter = seq(1,1400,140)))
+  ####--> this association is stronger int he beginning
+
+          #in ASD and TD
+          lmm<-lmer(scale(pd_baseline)~EventData*ssp_total_scaled*EventCounter+
+                      (1|subjects)+(1|wave),data=df_trial[df_trial$t1_diagnosis=='ASD',])
+
+          anova(lmm)
+          cbind(round(fixef(lmm)['ssp_total_scaled'],2),
+                round(confint(lmm,parm = 'ssp_total_scaled'),2))
+          #-> ASD. beta = 0.29 [0.27, 0.31]
+          emtrends(lmm,~EventCounter,var='ssp_total_scaled',at=list(EventCounter = seq(1,1400,140)))
+          ####--> this association is weaker at the end of the task
+
+
+          #in ASD and TD
+          lmm<-lmer(scale(pd_baseline)~EventData*ssp_total_scaled*EventCounter+
+                      (1|subjects)+(1|wave),data=df_trial[df_trial$t1_diagnosis=='Control',])
+
+          anova(lmm)
+          cbind(round(fixef(lmm)['ssp_total_scaled'],2),
+                round(confint(lmm,parm = 'ssp_total_scaled'),2))
+          #-> TD beta = -0.38 [-0.42, -0.33]
+          emtrends(lmm,~EventCounter,var='ssp_total_scaled',at=list(EventCounter = seq(1,1400,140)))
+          ####--> this association is stronger at the end of the task
+
+
+  names(df_trial)
+
+  df_trial$anx_beck<-with(df_trial,ifelse(!is.na(t1_beck_anx_adulta_self),t1_beck_anx_adulta_self,
+                                          ifelse(!is.na(t1_beck_anx_youthb_self),t1_beck_anx_youthb_self,t1_beck_anx_youthcd_parent)))
+  df_trial$anx_beck_scaled<-scale(df_trial$anx_beck)
+
+  lmm<-lmer(scale(pd_baseline)~EventData*anx_beck_scaled*EventCounter+
+              (1|subjects)+(1|wave),data=df_trial)
+
+  anova(lmm)
+  ###--> no effect
+
+
+  df_trial$dep_beck<-with(df_trial,ifelse(!is.na(t1_beck_dep_adulta_self),t1_beck_dep_adulta_self,
+                                          ifelse(!is.na(t1_beck_dep_youthb),t1_beck_dep_youthb,t1_beck_dep_adultd_parent)))
+  df_trial$dep_beck_scaled<-scale(df_trial$dep_beck)
+
+  lmm<-lmer(scale(pd_baseline)~EventData*dep_beck_scaled*EventCounter+
+              # scale(t1_ageyrs)+scale(t1_piq)+t1_sex+
+              # as.factor(sampling_rate)+scale(center_dev)+scale(missing_data_trial)+
+              (1|subjects)+(1|wave),data=df_trial)
+
+  anova(lmm)
+  ###--> no effect
+
+  ##### -- transdiagnostic factors ####
+
+  names(df_trial)
+  table(is.na(df_timepoint$sdq_internalising_p))
+
+  df_trial$sdq_internalising_p_scaled<-scale(df_trial$sdq_internalising_p)
+  df_trial$sdq_externalising_p_scaled<-scale(df_trial$sdq_externalising_p)
+  df_trial$sdq_total_p_scaled<-scale(df_trial$sdq_total_difficulties_p)
+
+  hist(df_trial$sdq_internalising_p_scaled,breaks=10)
+  hist(df_trial$sdq_externalising_p_scaled,breaks=10)
+  hist(df_trial$sdq_total_p_scaled,breaks=10)
+
+
+  lmm<-lmer(scale(pd_baseline)~EventData*sdq_internalising_p_scaled*EventCounter+
+              # scale(t1_ageyrs)+scale(t1_piq)+t1_sex+
+              # as.factor(sampling_rate)+scale(center_dev)+scale(missing_data_trial)+
+              (1|subjects)+(1|wave),data=df_trial)
+  anova(lmm)
+
+  cbind(round(fixef(lmm)['sdq_internalising_p_scaled'],2),
+        round(confint(lmm,parm = 'sdq_internalising_p_scaled'),2))
+  #-> beta = 0.07 [0.05, 0.08]
+  emtrends(lmm,~EventCounter,var='sdq_internalising_p_scaled',at=list(EventCounter = seq(1,1400,140)))
+  ####--> this association increases with task progression
+
+          ###in ASD
+          lmm<-lmer(scale(pd_baseline)~EventData*sdq_internalising_p_scaled*EventCounter+
+                      (1|subjects)+(1|wave),data=df_trial[df_trial$t1_diagnosis=='ASD',])
+          anova(lmm)
+          cbind(round(fixef(lmm)['sdq_internalising_p_scaled'],2),
+                round(confint(lmm,parm = 'sdq_internalising_p_scaled'),2))
+          #-> beta = 0.11 [0.09, 0.13]
+
+          ###in TD
+          lmm<-lmer(scale(pd_baseline)~EventData*sdq_internalising_p_scaled*EventCounter+
+                      (1|subjects)+(1|wave),data=df_trial[df_trial$t1_diagnosis=='Control',])
+          anova(lmm)
+          cbind(round(fixef(lmm)['sdq_internalising_p_scaled'],2),
+                round(confint(lmm,parm = 'sdq_internalising_p_scaled'),2))
+          #-> beta = -0.15 [-0.18, -0.12]
+
+
+  lmm<-lmer(scale(pd_baseline)~EventData*sdq_externalising_p_scaled*EventCounter+
+              (1|subjects)+(1|wave),data=df_trial)
+  anova(lmm)
+
+  cbind(round(fixef(lmm)['sdq_externalising_p_scaled'],2),
+        round(confint(lmm,parm = 'sdq_externalising_p_scaled'),2))
+  #-> beta = -0.17 [-0.18, -0.15]
+
+
+          ##in ASD
+          lmm<-lmer(scale(pd_baseline)~EventData*sdq_externalising_p_scaled*EventCounter+
+                      (1|subjects)+(1|wave),data=df_trial[df_trial$t1_diagnosis=='ASD',])
+          anova(lmm)
+          cbind(round(fixef(lmm)['sdq_externalising_p_scaled'],2),
+                round(confint(lmm,parm = 'sdq_externalising_p_scaled'),2))
+          #-> beta = -0.18 [-0.20, -0.16]
+
+          ###in TD ~ n = 31
+          lmm<-lmer(scale(pd_baseline)~EventData*sdq_externalising_p_scaled*EventCounter+
+                      (1|subjects)+(1|wave),data=df_trial[df_trial$t1_diagnosis=='Control',])
+          anova(lmm)
+          cbind(round(fixef(lmm)['sdq_externalising_p_scaled'],2),
+                round(confint(lmm,parm = 'sdq_externalising_p_scaled'),2))
+          #-> beta = -0.07 [-0.12, -0.01]
+
+
+  lmm<-lmer(scale(pd_baseline)~EventData*sdq_total_p_scaled*EventCounter+
+              (1|subjects)+(1|wave),data=df_trial)
+  anova(lmm)
+  #-> no effect
+
+
+          ##in ASD
+          lmm<-lmer(scale(pd_baseline)~EventData*sdq_total_p_scaled*EventCounter+
+                      (1|subjects)+(1|wave),data=df_trial[df_trial$t1_diagnosis=='ASD',])
+          anova(lmm)
+          ##--> no effect
+
+          ###in TD ~ n =31
+          lmm<-lmer(scale(pd_baseline)~EventData*sdq_total_p_scaled*EventCounter+
+                      (1|subjects)+(1|wave),data=df_trial[df_trial$t1_diagnosis=='Control',])
+          anova(lmm)
+          cbind(round(fixef(lmm)['sdq_total_p_scaled'],2),
+                round(confint(lmm,parm = 'sdq_total_p_scaled'),2))
+          #-> beta = -0.16 [-0.19, -0.12]
+
+    ### transdiagnosic associations on per participant level
+
+          #BPS
+          with(df_timepoint,cor.test(scale(sdq_internalising_p),pd_baseline))
+          with(df_timepoint,cor.test(scale(sdq_externalising_p),pd_baseline))
+          with(df_timepoint,cor.test(scale(sdq_total_difficulties_p),pd_baseline))
+          ### --> all weak positive associations across groups
+          with(df_timepoint[df_timepoint$t1_diagnosis=='ASD',],cor.test(scale(sdq_internalising_p),pd_baseline))
+          with(df_timepoint[df_timepoint$t1_diagnosis=='ASD',],cor.test(scale(sdq_externalising_p),pd_baseline))
+          with(df_timepoint[df_timepoint$t1_diagnosis=='ASD',],cor.test(scale(sdq_total_difficulties_p),pd_baseline))
+          ### --> not significant in ASD --> power problem
+          with(df_timepoint[df_timepoint$t1_diagnosis=='Control',],cor.test(scale(sdq_internalising_p),pd_baseline))
+          with(df_timepoint[df_timepoint$t1_diagnosis=='Control',],cor.test(scale(sdq_externalising_p),pd_baseline))
+          with(df_timepoint[df_timepoint$t1_diagnosis=='Control',],cor.test(scale(sdq_total_difficulties_p),pd_baseline))
+          ### --> not significant in TD --> power problem
+
+          #SEPR ---> no association
+          with(df_timepoint,cor.test(scale(sdq_internalising_p),rpd_auc))
+          with(df_timepoint,cor.test(scale(sdq_externalising_p),rpd_auc))
+          with(df_timepoint,cor.test(scale(sdq_total_difficulties_p),rpd_auc))
+          ### ---> no association
+          with(df_timepoint[df_timepoint$t1_diagnosis=='ASD',],cor.test(scale(sdq_internalising_p),rpd_auc))
+          with(df_timepoint[df_timepoint$t1_diagnosis=='ASD',],cor.test(scale(sdq_externalising_p),rpd_auc))
+          with(df_timepoint[df_timepoint$t1_diagnosis=='ASD',],cor.test(scale(sdq_total_difficulties_p),rpd_auc))
+          ### --> not significant in ASD --> power problem
+          with(df_timepoint[df_timepoint$t1_diagnosis=='Control',],cor.test(scale(sdq_internalising_p),rpd_auc))
+          with(df_timepoint[df_timepoint$t1_diagnosis=='Control',],cor.test(scale(sdq_externalising_p),rpd_auc))
+          with(df_timepoint[df_timepoint$t1_diagnosis=='Control',],cor.test(scale(sdq_total_difficulties_p),rpd_auc))
+          ### --> not significant in TD --> power problem
+          with(df_timepoint[df_timepoint$t1_diagnosis=='Control',],cor.test(scale(sdq_externalising_p),rpd_auc))
+          ###--> higher rpd_auc assoicated with higher externalising in TD
+
+  ### - Changes in BPS and SEPR by sequence position (habituation / repetition suppression) ####
+
+  names(df_trial)
+  with(df_trial,table(sequence_position,EventData))
+
+  #distribution of sequence position
+  labels <- c("201" = "standard", "202" = "pitch oddball", "203" = "length oddball", "204" = "pitch & length oddball")
+  ggplot(df_trial,aes(x=sequence_position,group=EventData,fill=EventData))+geom_density(adjust=3)+facet_wrap(~EventData,labeller=labeller(EventData = labels))
+
+  table_sequence_position<-with(df_trial,table(sequence_position,EventData))
+  table_sample<-table_sequence_position %>%
+    kbl(caption = "trials by sequence position",
+        col.names = c('standard','pitch','length','pitch & length'),
+        row.names = T) %>%
+    kable_classic(full_width = F, html_font = "Cambria")
+  save_kable(table_sample, file=paste0(project_path,'/output/table_trials_by_sequence_position.html'))
+
+  table_sample
+
+
+  #required transformations
+  df_trial$standardtrial<-with(df_trial,ifelse(EventData==201,T,F))
+  df_trial$sequence_position_z<-scale(df_trial$sequence_position)
+
+      ggplot(df_trial,aes(x=EventCounter,y=scale(pd_baseline),group=interaction(standardtrial,t1_diagnosis),linetype=t1_diagnosis,color=standardtrial,fill=standardtrial))+geom_smooth()+
+        theme_bw()+labs(y='pupillary response: SEPR (z)')
+
+
+
+  #visualization
+  require(wesanderson)
+  custom_condition_colors <- wes_palette('FantasticFox1',5,type='discrete')[2:5]
+
+  hist(scale(df_trial$rpd_auc))
+  hist(scale(df_trial$pd_baseline))
+
+  ggplot(df_trial,aes(x=EventCounter,y=scale(rpd_response),group=EventData,color=EventData,fill=EventData))+geom_smooth()+
+    theme_bw()+labs(y='pupillary response: SEPR (z)')+
+    scale_fill_manual(values = custom_condition_colors, labels=c("201" = "standard", "202" = "pitch oddball", "203" = "length oddball ", "204" = "pitch & length oddball"))+
+    scale_color_manual(values = custom_condition_colors, labels=c("201" = "standard", "202" = "pitch oddball", "203" = "length oddball ", "204" = "pitch & length oddball"))
+
+  ggplot(df_trial,aes(x=EventCounter,y=scale(pd_baseline),group=EventData,color=EventData,fill=EventData))+geom_smooth()+
+    theme_bw()+labs(y='baseline pupil size: BPS (z)')+
+    scale_fill_manual(values = custom_condition_colors, labels=c("201" = "standard", "202" = "pitch oddball", "203" = "length oddball ", "204" = "pitch & length oddball"))+
+    scale_color_manual(values = custom_condition_colors, labels=c("201" = "standard", "202" = "pitch oddball", "203" = "length oddball ", "204" = "pitch & length oddball"))
+
+  ggplot(df_trial[df_trial$sequence_position<=10,],aes(x=sequence_position,y=scale(rpd_response),group=EventData,color=EventData,fill=EventData))+geom_smooth()+
+    theme_bw()+labs(y='pupillary response: SEPR (z)')+
+    scale_fill_manual(values = custom_condition_colors, labels=c("201" = "standard", "202" = "pitch oddball", "203" = "length oddball ", "204" = "pitch & length oddball"))+
+    scale_color_manual(values = custom_condition_colors, labels=c("201" = "standard", "202" = "pitch oddball", "203" = "length oddball ", "204" = "pitch & length oddball"))
+
+  ggplot(df_trial[df_trial$sequence_position<=10,],aes(x=sequence_position,y=scale(pd_baseline),group=EventData,color=EventData,fill=EventData))+geom_smooth()+
+    theme_bw()+labs(y='baseline pupil size: BPS (z)')+
+    scale_fill_manual(values = custom_condition_colors, labels=c("201" = "standard", "202" = "pitch oddball", "203" = "length oddball ", "204" = "pitch & length oddball"))+
+    scale_color_manual(values = custom_condition_colors, labels=c("201" = "standard", "202" = "pitch oddball", "203" = "length oddball ", "204" = "pitch & length oddball"))
+
+
+
+  ggplot(df_trial[df_trial$sequence_position<4,],aes(x=interaction(as.factor(sequence_position),EventData),y=scale(rpd_response),color=EventData,fill=EventData))+geom_violin()+
+    theme_bw()+labs(y='pupillary response: SEPR (z)')
+
+
+
+  ggplot(df_trial[df_trial$sequence_position<=10,],aes(x=sequence_position,y=scale(pd_baseline),group=EventData,color=EventData))+geom_smooth()+theme_bw()
+
+
+  #figure
+  ggplot(df_trial[df_trial$sequence_position<=10,],aes(x=sequence_position,y=scale(pd_baseline),group=interaction(standardtrial,t1_diagnosis),color=standardtrial,linetype=t1_diagnosis))+
+    geom_smooth()+labs(x='sequence position',y='BPS (z)')+scale_x_continuous(breaks=1:10)+theme_bw()
+  ggplot(df_trial[df_trial$sequence_position<=10,],aes(x=sequence_position,y=scale(rpd_response),group=interaction(standardtrial,t1_diagnosis),color=t1_diagnosis,linetype=standardtrial))+
+    geom_smooth()+labs(x='sequence position',y='SEPR (z)')+scale_x_continuous(breaks=1:10)+theme_bw()
+
+
+  #BPS - continuous
+  lmm<-lmer(scale(pd_baseline)~EventData*t1_diagnosis*sequence_position_z+
+              (1|subjects)+(1|wave),data=df_trial[df_trial$sequence_position<10,])
+
+  #model fit
+  anova(lmm)
+  r2_nakagawa(lmm)
+
+        ### supplementary analysis
+        lmm<-lmer(scale(pd_baseline)~t1_diagnosis*sequence_position_z+
+                    (1|subjects)+(1|wave),data=df_trial[df_trial$EventData==201 & df_trial$sequence_position<10,])
+
+        #model fit
+        anova(lmm)
+
+
+        #BIC Bayes Factor
+        lmm_ML<-lmer(scale(pd_baseline)~t1_diagnosis*sequence_position_z+
+                       (1|subjects)+(1|wave),data=df_trial[df_trial$EventData==201 & df_trial$sequence_position<10,],REML=F)
+
+        null_lmm_ML <- lmer(scale(pd_baseline)~sequence_position_z+
+                              (1|subjects)+(1|wave),data=df_trial[df_trial$EventData==201 & df_trial$sequence_position<10,],REML=F)
+
+        BF_BIC <- exp((BIC(null_lmm_ML) - BIC(lmm_ML))/2)
+        BF_BIC
+
+  #BPS categorical
+  lmm<-lmer(scale(pd_baseline)~EventData*t1_diagnosis*as.factor(sequence_position)+
+              (1|subjects)+(1|wave),data=df_trial[df_trial$sequence_position<4,])
+
+  anova(lmm)
+  contrast(emmeans(lmm,~as.factor(sequence_position)),'pairwise')
+  ###-> 1-3 effect
+  ###inclusion of covariates leads to boundary singular
+
+  lmm<-lmer(scale(pd_baseline)~t1_diagnosis*as.factor(sequence_position)+
+              (1|subjects)+(1|wave),data=df_trial[df_trial$EventData==201 & df_trial$sequence_position<4,])
+
+
+
+  #SEPR
+  lmm<-lmer(scale(rpd_auc)~EventData*t1_diagnosis*sequence_position_z+
+              (1|subjects)+(1|wave),data=df_trial[df_trial$sequence_position<10,])
+
+  anova(lmm)
+
+
+  lmm<-lmer(scale(rpd_auc)~EventData*t1_diagnosis*as.factor(sequence_position)+
+              (1|subjects)+(1|wave),data=df_trial[df_trial$sequence_position<4,])
+
+
+      #BIC Bayes Factor
+      lmm_ML<-lmer(scale(rpd_auc)~EventData*t1_diagnosis*as.factor(sequence_position)+
+                     (1|subjects)+(1|wave),data=df_trial[df_trial$sequence_position<4,],REML=F)
+
+      null_lmm_ML <- lmer(scale(rpd_auc)~1+
+                            (1|subjects)+(1|wave),data=df_trial[df_trial$sequence_position<4,],REML=F)
+
+      BF_BIC <- exp((BIC(null_lmm_ML) - BIC(lmm_ML))/2)
+      BF_BIC
+
+      BIC(null_lmm_ML)
+      BIC(lmm_ML)
+
+
+
+  anova(lmm)
+  ###--> if an oddballs follows an oddball - higehr response in ASD
+  ###--> if oddball follows a standard - higher response in TD
+
+  contrast(emmeans(lmm,~t1_diagnosis|EventData+as.factor(sequence_position)),'pairwise')
+  confint(contrast(emmeans(lmm,~t1_diagnosis|EventData+as.factor(sequence_position)),'revpairwise'))
+
+
+
+
+
+
+  df_trial$trial_position<-ifelse(df_trial$EventCounter<=280,'first quintile',
+                              ifelse(df_trial$EventCounter>1120,'fifth quintile',
+                                     ifelse(df_trial$EventCounter>560 & df_trial$EventCounter<=840,'third quintile',
+                                            ifelse(df_trial$EventCounter>280 & df_trial$EventCounter<=560,'second quintile',
+                                                   ifelse(df_trial$EventCounter>840 & df_trial$EventCounter<=1120,'fourth quintile',NA)))))
+  df_trial$trial_position<-factor(df_trial$trial_position,levels=c('first quintile','second quintile','third quintile','fourth quintile','fifth quintile'))
+
+
+  lmm<-lmer(scale(rpd_auc)~t1_diagnosis*trial_position*as.factor(sequence_position)+
+              (1|subjects)+(1|wave),data=df_trial[df_trial$EventData==201 & df_trial$sequence_position<4,])
+
+  anova(lmm)
+  contrast(emmeans(lmm,~as.factor(sequence_position)),'pairwise')
+  contrast(emmeans(lmm,~t1_diagnosis|trial_position),'pairwise')
+
 
 
 ###--> ADDITIONAL VISUALIZATION: ####
@@ -1672,8 +2241,8 @@ df<-merge(df,df_dem_merge,by='subjects') ###--> takes a while
     ggplot(df[df$time_event<0.6,],aes(x=time_event,y=rpd,group=EventData,color=EventData,fill=EventData))+
       geom_smooth(alpha=0.4)+
       labs(x='trial duration (s)',y='change in pupil size (mm)')+
-      scale_fill_discrete(labels=c("201" = "standard", "202" = "oddball pitch", "203" = "oddball length", "204" = "oddball both"))+
-      scale_color_discrete(labels=c("201" = "standard", "202" = "oddball pitch", "203" = "oddball length", "204" = "oddball both"))+
+      scale_fill_discrete(labels=c("201" = "standard", "202" = "pitch oddball", "203" = "length oddball ", "204" = "pitch & length oddball"))+
+      scale_color_discrete(labels=c("201" = "standard", "202" = "pitch oddball", "203" = "length oddball ", "204" = "pitch & length oddball"))+
       theme_bw()
 
 
@@ -1737,31 +2306,30 @@ psych::describe(scale(df_trial$rpd_response))
 
 require(brms)
 
-def_formula <- rpd_auc_z ~ EventData*t1_diagnosis + (1|subjects)
+names(df_trial)
+
+df_trial$rpd_auc_z<-scale(df_trial$rpd_auc)
+df_trial$pd_baseline_z<-scale(df_trial$pd_baseline)
+
+def_formula <- rpd_auc_z ~ pd_baseline_z + (1|subjects)
 
 get_prior(def_formula, data  = df_trial)
 
-pr <- c(#set_prior("categorical(202,0.05)", class = "b", coef = "EventData202"),
-        # set_prior("categorical(0.05)", class = "b", coef = "EventData203"),
-        # set_prior("categorical(0.05)", class = "b", coef = "EventData204"),
-        set_prior("normal(0,1)", class = "b", coef = "scalepd_baseline"))
+pr <- c(set_prior("normal(0,1)", class = "b", coef = "pd_baseline_z"))
 
 # verify that the priors indeed found their way into Stan's model code
-make_stancode(def_formula,  data = df_trial)
-              #, prior = pr)
+make_stancode(def_formula,  data = df_trial, prior = pr)
 
 bayesian_mixed <- brm(
   formula = def_formula,
   data  = df_trial,
-  #prior = pr,
-  chains = 4,
-  cores = 24,
+  prior = pr,
+  #chains = 4,
+  #cores = 24,
   #threads = 8,
-  iter = 1
-  000
+  #iter = 100
 )
 
-?brm
 
 #more chains needed
 summary(bayesian_mixed)
@@ -1894,6 +2462,7 @@ test <- calculate(mean, values = draws)
 
 #posterior predictive checking
 coda::gelman.diag(draws) #Rhat <= 1.01 is cutoff for reliable estimator
+coda::effectiveSize(draws) #ESS
 
 save(draws,draws2,file='C:/Users/nico/Desktop/mmn_leap_bayesian_models_24022023')
 #draws - rpd_auc ~ trials * group * events
