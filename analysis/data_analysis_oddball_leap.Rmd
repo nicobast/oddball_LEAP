@@ -54,7 +54,7 @@ project_path<-"C:/Users/nico/PowerFolders/project_oddball_LEAP"
 ```
 
 ```{r load_data}
-load(file='data/mmn_leap_pd_final_dfs_21022023')
+load(file=paste0(project_path,'/data/mmn_leap_pd_final_dfs_21022023'))
 
 ```
 
