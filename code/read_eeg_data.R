@@ -5,6 +5,9 @@
 # .fdt files are bianry and need to be provide with the correct data shape:
 # https://www.mattcraddock.com/blog/2017/11/17/loading-eeglab-set-files-in-r-part-2/
 
+##object chanlocs could be applied to retrieve further info on channels
+
+
 #INFO ON EEGLAB file structure form eeg_checkset.m:
 
 # % The structure of an EEG dataset under EEGLAB (as of v5.03):
@@ -107,7 +110,7 @@ require(pbapply)
 
 
 
-### paths
+### paths ####
 data_path<-"Z:/nico/backup_data/data_AIMS/mismatch_negativity/EEG/05_segmented_baselinecorrected"
 file_list<-list.files(data_path,recursive=T)
 
@@ -115,24 +118,29 @@ file_list<-list.files(data_path,recursive=T)
 file_list_set<-file_list[grepl(".set",file_list)] #.set files only contain the data structure
 file_list_fdt<-file_list[grepl(".fdt",file_list)] #.fdt contains actual data - but as binary format
 
-###analyze data structure
-
+      ###analyze data structure
       number_of_conditions<-4
       length(file_list_set)/number_of_conditions
       ###--> 462 data sets
 
-      testing_set<-188
+###DEFINE FUNCTION ####
+
+fun_read_eeglab_output<-function(files_to_read){
 
 ###READ DATA ####
 
+      # #testing
+      # testing_set<-188
+      # one_set<-readMat(paste(data_path,file_list_set[testing_set],sep='/'))
+
 #read meta data
-one_set<-readMat(paste(data_path,file_list_set[testing_set],sep='/'))
+one_set<-readMat(paste(data_path,files_to_read,sep='/'))
 
 #name of data file in meta data
 one_data_file_path<-unlist(one_set[[1]][43])
 
 #meta data structure
-one_set$EEG
+#one_set$EEG
 
 #### data structure required to reconstruct correct matrix shape from binary file
 var_names<-dimnames(one_set$EEG)[[1]] #get variable names of meta data
@@ -223,13 +231,40 @@ one_data_set$ID<-ID
 one_data_set$condition<-condition
 one_data_set$timepoint<-timepoint
 
+return(one_data_set)
+
+}
+
 ###--> batch for all participants ####
 
-#other info
-#trial_info<-as.numeric(one_set$EEG[[which(var_names == 'trialskeep')]])
 
-#TODO:
-#--> batch across participants
+sample_set<-sample(1:length(file_list_set),30)
+test_list<-pblapply(file_list_set[sample_set],fun_read_eeglab_output)
+
+
+hist(unlist(sapply(test_list,function(x){x['trial_counter']})),10)
+#--> even distribution of trials
+
+table(unlist(sapply(test_list,function(x){x['epoch']})))
+
+
+###plot eeg
+
+list_selected_electrodes<-pblapply(test_list,function(x){x[,c('Fz','Pz','Cz','times','epoch','trial_counter','ID','condition')]})
+df_eeg<-plyr::rbind.fill(list_selected_electrodes)
+
+
+require(ggplot2)
+require(gridExtra)
+theme_set(theme_bw())
+
+
+ggplot(df_eeg,aes(x=times,y=Fz,group=condition,color=condition))+geom_smooth()
+
+
+grid.arrange(ggplot(df_eeg,aes(x=times,y=Fz))+geom_smooth(),
+             ggplot(df_eeg,aes(x=times,y=Pz))+geom_smooth(),
+             ggplot(df_eeg,aes(x=times,y=Cz))+geom_smooth())
 
 
 
