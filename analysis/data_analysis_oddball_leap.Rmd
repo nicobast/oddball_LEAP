@@ -58,24 +58,6 @@ load(file=paste0(project_path,'/data/mmn_leap_pd_final_dfs_21022023'))
 
 ```
 
-# linearity of effect of trial number
-
-```{r trial_number_linearity}
-
-###polynomial fit of trial counter
-  linear_fit<-lmer(scale(rpd_auc)~EventData*t1_diagnosis*scale(EventCounter)+
-          (1|subjects)+(1|wave),data=df_trial,REML=F)
-
-  quadratic_fit<-lmer(scale(rpd_auc)~EventData*t1_diagnosis*poly(scale(EventCounter),2)+
-              (1|subjects)+(1|wave),data=df_trial,REML=F)
-
-  cubic_fit<-lmer(scale(rpd_auc)~EventData*t1_diagnosis*poly(scale(EventCounter),3)+
-               (1|subjects)+(1|wave),data=df_trial,REML=F)
-
-  anova(linear_fit,quadratic_fit,cubic_fit)
-  
-```
-
 # descriptives table
 
 ```{r samples description}
@@ -1200,14 +1182,16 @@ dev.off() #close operation and save file
 ```{r PCDM_neural_gain}
 
 #read data estimated in MAtlab
-mat_output<-readMat("C:/Users/nico/PowerFolders/project_oddball_LEAP/data/pcdm_estimates_1run_290323.mat")
+mat_output<-readMat(paste0(project_path,"/data/pcdm_estimates_1run_290323.mat"))
 
 #extract parameters
 pcdm_parameters<-mat_output[[2]]
 names(pcdm_parameters)<-c('interpolateBlinks','downsampleRate','fitTimeseries','change_cutoff_by_samplingRate','low_bandpass_filter_range','blinkint_vel_thres_on','blinkint_window_from_onset','blinkint_min_dur','rel_vel_thres','min_sac_dur')
 
+#create empty list
 list_pcdm_estimates<-list()
 
+### extract required info from matlab object in for loop
 for (i in seq(length(mat_output[[1]]))){
 
 pcdm_estimate<-mat_output[[1]][i][[1]][[1]] #extract relevant data of single participant
@@ -1218,14 +1202,15 @@ list_pcdm_estimates[[i]]<-pcdm_estimate
 
 }
 
+#add names
 names(list_pcdm_estimates)<-sapply(list_pcdm_estimates,function(x){x['name']})
 
+#create vectors
 gain_pcdm<-unlist(sapply(list_pcdm_estimates,function(x){x['gain']}))
 Rsq_pcdm<-unlist(sapply(list_pcdm_estimates,function(x){x['Rsq']}))
 offset_pcdm<-unlist(sapply(list_pcdm_estimates,function(x){x['offset']}))
 id<-substr(names(list_pcdm_estimates),1,nchar(names(list_pcdm_estimates))-4)
 id<-id[id!=""] #remove empty entries
-
 
 #exclude outliers
 gain_pcdm[gain_pcdm>0.2 | gain_pcdm<(-0.2)]<-NA
@@ -1243,7 +1228,6 @@ lm_gain<-lm(scale(gain_pcdm)~t1_diagnosis,df_timepoint[df_timepoint$Rsq_pcdm>0.2
 summary(lm_gain) #higher gain in ASD for standards
 anova(lm_gain) #higher gain in ASD for standards
 
-
 t.test(scale(gain_pcdm)~t1_diagnosis,df_timepoint[df_timepoint$Rsq_pcdm>0.2,])
 cohens_d(x=scale(gain_pcdm)~t1_diagnosis,data=df_timepoint[df_timepoint$Rsq_pcdm>0.2,])
 #--> d=0.4 in ASD
@@ -1251,8 +1235,125 @@ cohens_d(x=scale(gain_pcdm)~t1_diagnosis,data=df_timepoint[df_timepoint$Rsq_pcdm
 #visualize
 ggplot(df_timepoint[df_timepoint$Rsq_pcdm>0.2, ],aes(x=scale(gain_pcdm),fill=t1_diagnosis))+geom_histogram(aes(y = after_stat(density)),position='dodge',bins=20)+theme_bw()
 
+###scaling with demographic data
+summary(lm(scale(gain_pcdm)~ageyrs,df_timepoint[df_timepoint$Rsq_pcdm>0.2,]))
+summary(lm(scale(gain_pcdm)~t1_piq,df_timepoint[df_timepoint$Rsq_pcdm>0.2,]))
+summary(lm(scale(gain_pcdm)~sex,df_timepoint[df_timepoint$Rsq_pcdm>0.2,]))
+
+# summary(lm(scale(gain_pcdm)~rpd_auc.201,df_timepoint[df_timepoint$Rsq_pcdm>0.2,]))
+# summary(lm(scale(gain_pcdm)~rpd_auc.202,df_timepoint[df_timepoint$Rsq_pcdm>0.2,]))
+# summary(lm(scale(gain_pcdm)~rpd_auc.203,df_timepoint[df_timepoint$Rsq_pcdm>0.2,]))
+# summary(lm(scale(gain_pcdm)~rpd_auc.204,df_timepoint[df_timepoint$Rsq_pcdm>0.2,]))
+# summary(lm(scale(gain_pcdm)~pd_baseline,df_timepoint[df_timepoint$Rsq_pcdm>0.2,]))
+
 
 ```
+
+#supplementary analyses
+
+## linearity of effect of trial number
+
+```{r trial_number_modelcomparison BPS}
+
+###polynomial fit of trial counter
+  linear_fit<-lmer(scale(pd_baseline)~EventData*t1_diagnosis*scale(EventCounter)+
+          (1|subjects)+(1|wave),data=df_trial,REML=F)
+
+  quadratic_fit<-lmer(scale(pd_baseline)~EventData*t1_diagnosis*poly(scale(EventCounter),2)+
+              (1|subjects)+(1|wave),data=df_trial,REML=F)
+
+  cubic_fit<-lmer(scale(pd_baseline)~EventData*t1_diagnosis*poly(scale(EventCounter),3)+
+               (1|subjects)+(1|wave),data=df_trial,REML=F)
+  
+  quartic_fit<-lmer(scale(pd_baseline)~EventData*t1_diagnosis*poly(scale(EventCounter),4)+
+               (1|subjects)+(1|wave),data=df_trial,REML=F)
+
+  quintic_fit<-lmer(scale(pd_baseline)~EventData*t1_diagnosis*poly(scale(EventCounter),5)+
+               (1|subjects)+(1|wave),data=df_trial,REML=F)
+
+  sextic_fit<-lmer(scale(pd_baseline)~EventData*t1_diagnosis*poly(scale(EventCounter),6)+
+               (1|subjects)+(1|wave),data=df_trial,REML=F)
+
+  septic_fit<-lmer(scale(pd_baseline)~EventData*t1_diagnosis*poly(scale(EventCounter),7)+
+               (1|subjects)+(1|wave),data=df_trial,REML=F)
+
+  anova(linear_fit,quadratic_fit,cubic_fit,quartic_fit,quintic_fit,sextic_fit,septic_fit)
+  
+  table_model_compare<-anova(linear_fit,quadratic_fit,cubic_fit)
+  
+  table_model_compare<-cbind(c('linear fit','quadratic fit','cubic fit','qaurtic fit','quintic fit'),table_model_compare)
+  
+  table_formatted<-table_model_compare %>%
+  kbl(caption = "Model comparison on the linearity of trial number on stimulus-evoked pupillary response",
+      col.names = c('','number of parameters','AIC','BIC','log likelihood','deviance','Chi-squared','df','p-value'),
+      row.names = F) %>%
+  kable_classic(full_width = F, html_font = "Cambria")
+
+table_formatted
+
+save_kable(table_formatted, file=paste0(project_path,'/output/supplements/table_modelcomparison_linearity_trialnumber_onBPS.html'))
+  
+  
+```
+
+
+## intraclass correaltion of the dependent variables
+
+```{r ICC_of_dependent_variables}
+
+#select only individuals that have both waves
+subjects_with_both_waves<-df_dem$subjects[df_dem$timepoints=='wave1+2']
+df_trial_wave12<-df_trial[df_trial$subjects %in% subjects_with_both_waves,]
+
+#BPS
+baseline_pd_wave1<-with(df_trial_wave12[df_trial_wave12$wave=='wave1',],aggregate(pd_baseline,by=list(subjects),FUN=mean,na.rm=T))
+baseline_pd_wave2<-with(df_trial_wave12[df_trial_wave12$wave=='wave2',],aggregate(pd_baseline,by=list(subjects),FUN=mean,na.rm=T))
+names(baseline_pd_wave1)<-c('subjects','wave1')
+names(baseline_pd_wave2)<-c('subjects','wave2')
+
+baseline_pd_waves<-merge(baseline_pd_wave1,baseline_pd_wave2,by='subjects')
+
+cor.test(baseline_pd_waves$wave1,baseline_pd_waves$wave2)
+
+psych::ICC(baseline_pd_waves[,-1])
+###--> ICC: 0.88 [0.81, 0.93]
+
+
+#SEPR
+rpd204_wave1<-with(df_trial_wave12[df_trial_wave12$EventData=='204' & df_trial_wave12$wave=='wave1',],aggregate(rpd_auc.204,by=list(subjects),FUN=mean,na.rm=T))
+rpd204_wave2<-with(df_trial_wave12[df_trial_wave12$EventData=='204' & df_trial_wave12$wave=='wave2',],aggregate(rpd_auc.204,by=list(subjects),FUN=mean,na.rm=T))
+
+names(rpd204_wave1)<-c('subjects','wave1')
+names(rpd204_wave2)<-c('subjects','wave2')
+
+rpd_waves<-merge(rpd204_wave1,rpd204_wave2,by='subjects')
+
+cor.test(rpd_waves$wave1,rpd_waves$wave2)
+##--> r =.23
+
+psych::ICC(rpd_waves[,-1])
+###--> ICC: 0.37 [-0.01, 0.60]
+
+
+names(df_timepoint)
+
+#NG
+gain_wave1<-with(df_timepoint[df_timepoint$wave=='wave1',],aggregate(gain_pcdm,by=list(subjects),FUN=mean,na.rm=T))
+gain_wave2<-with(df_timepoint[df_timepoint$wave=='wave2',],aggregate(gain_pcdm,by=list(subjects),FUN=mean,na.rm=T))
+
+names(gain_wave1)<-c('subjects','wave1')
+names(gain_wave2)<-c('subjects','wave2')
+
+gain_waves<-merge(gain_wave1,gain_wave2,by='subjects')
+
+cor.test(gain_waves$wave1,gain_waves$wave2)
+##--> r =.23
+
+psych::ICC(gain_waves[,-1])
+###--> ICC: 0.37 [0.02, 0.59]
+
+```
+
 
 
 
