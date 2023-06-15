@@ -98,7 +98,6 @@
 # %       EEG.reject.elecreject - epochs rejected by raw data criteria
 
 
-
 ### SETUP ####
 
 #### packages
@@ -118,15 +117,19 @@ file_list_fdt<-file_list[grepl(".fdt",file_list)] #.fdt contains actual data - b
 
 ###analyze data structure
 
-number_of_conditions<-4
-length(file_list_set)/number_of_conditions
-###--> 462 data sets
+      number_of_conditions<-4
+      length(file_list_set)/number_of_conditions
+      ###--> 462 data sets
 
+      testing_set<-188
 
 ###READ DATA ####
 
 #read meta data
-one_set<-readMat(paste(data_path,file_list_set[30],sep='/'))
+one_set<-readMat(paste(data_path,file_list_set[testing_set],sep='/'))
+
+#name of data file in meta data
+one_data_file_path<-unlist(one_set[[1]][43])
 
 #meta data structure
 one_set$EEG
@@ -136,10 +139,6 @@ var_names<-dimnames(one_set$EEG)[[1]] #get variable names of meta data
 n_chans <- one_set$EEG[[which(var_names == 'nbchan')]] #number of channels
 n_trials <- one_set$EEG[[which(var_names == 'trials')]] #number of retained trials
 times <- one_set$EEG[[which(var_names == 'times')]] #time within trial (-100-500ms)
-
-#name of data file in meta data
-one_data_file_path<-unlist(one_set[[1]][43])
-
 
 ##read that data file
 
@@ -181,115 +180,7 @@ one_data_set <- one_data_set %>%
   mutate(epoch = 1:n()) %>%
   ungroup
 
-
-#other info
-ID<-substr(one_data_file_path,1,12)
-condition<-substr(one_data_file_path,14,16)
-trial_info<-as.numeric(one_set$EEG[[which(var_names == 'trialskeep')]])
-
-#TODO:
-#wave?
-#--> batch across participants
-
-#### trial information ####
-
-      #read meta data
-      one_set<-readMat(paste(data_path,file_list_set[30],sep='/'))
-      var_names<-dimnames(one_set$EEG)[[1]] #get variable names of meta data
-
-###-->trial information in meta data? - trials keep - not succesful ####
-var_names
-test<-one_set$EEG[[which(var_names == 'trialskeep')]]
-as.numeric(test)
-cumsum(as.numeric(test))
-plot(density(as.numeric(test)))
-mean(test)
-hist(test)
-sum(test)
-
-fun_trials_retained<-function(x){
-  one_set<-readMat(paste(data_path,x,sep='/'))
-  var_names<-dimnames(one_set$EEG)[[1]]
-  trialskeep<-as.numeric(one_set$EEG[[which(var_names == 'trialskeep')]])
-  return(trialskeep)
-}
-
-list_trialsretained<-pblapply(file_list_set[1:30],fun_trials_retained)
-
-  sapply(list_trialsretained,function(x){cumsum(x)})
-  hist(unlist(list_trialsretained),10)
-
-  cumsum(unlist(list_trialsretained))
-  unlist(list_trialsretained)
-
-###--> might be triggers since last trial? --> not successful ####
-
-#original event information
-
-fun_trigger_seq<-function(x){
-
-  #TESTING
-  one_set<-readMat(paste(data_path,x,sep='/'))
-
-  events_all<-one_set$EEG[[which(var_names == 'urevent')]] #event trigger in raw data
-  events_all<-data.frame(matrix(unlist(events_all),ncol=4,byrow=T)) #bring matrix into right format
-  trigger_sequence<-events_all[,1] #extract trigger
-
-          # which(trigger_sequence=='T204')
-          # which(trigger_sequence=='204')
-          # which(trigger_sequence=='S204')
-
-  #identify first oddball trigger
-  first_oddball_trigger<-min(c(grep('201',trigger_sequence),
-                               grep('202',trigger_sequence),
-                               grep('203',trigger_sequence),
-                               grep('204',trigger_sequence)))
-
-  #identify last oddball trigger
-  last_oddball_trigger<-max(c(grep('201',trigger_sequence),
-                              grep('202',trigger_sequence),
-                              grep('203',trigger_sequence),
-                              grep('204',trigger_sequence)))
-
-  #select oddball trigger sequence
-  oddball_trigger_sequence<-trigger_sequence[first_oddball_trigger:last_oddball_trigger]
-
-  return(oddball_trigger_sequence)
-
-}
-
-list_triggersequences<-pblapply(file_list_set[1:30],fun_trigger_seq)
-
-
-    #checking
-    sapply(list_triggersequences,table)
-    list_clean_triggersequences<-list_triggersequences[sapply(list_triggersequences,function(x){length(table(x))})==4]
-
-    list_trialsretained
-    list_clean_trialsretained<-list_trialsretained[sapply(list_triggersequences,function(x){length(table(x))})==4]
-
-    sapply(list_clean_triggersequences,table,simplify=F)
-
-    hist(unlist(list_clean_trialsretained))
-    hist(unlist(list_trialsretained))
-
-    sapply(list_clean_trialsretained,cumsum)
-
-
-    ##crossreferencing
-    a_dataset<-1
-
-    table(unlist(list_clean_triggersequences[a_dataset]))
-    length(unlist(list_clean_trialsretained[a_dataset]))
-    list_clean_trialsretained[a_dataset] #trial information?
-    grep('204',unlist(list_clean_triggersequences[a_dataset])) #which are 204
-    list_clean_triggersequences[a_dataset] #trigger sequence
-
-#trial information in epoch data --> SUCCESFUL ####
-
-    #read meta data
-    one_set<-readMat(paste(data_path,file_list_set[30],sep='/'))
-    var_names<-dimnames(one_set$EEG)[[1]] #get variable names of meta data
+#### extract trial information from epoch meta data ####
 
 #information on retained triggers of trials is in there
 epochs_retained<-one_set$EEG[[which(var_names == 'epoch')]]
@@ -300,34 +191,53 @@ events_all<-one_set$EEG[[which(var_names == 'urevent')]] #event trigger in raw d
 events_all<-data.frame(matrix(unlist(events_all),ncol=4,byrow=T)) #bring matrix into right format
 trigger_sequence<-events_all[,1] #extract trigger
 
-#compare
-retained_triggers<-as.numeric(epochs_retained[,6]) ## information which trigger are retained
-#trigger_positions_oftype<-grep('204',trigger_sequence) ##information on all triggers of that type
+#information which triggers are retained for final anaylsis
+retained_triggers<-as.numeric(epochs_retained[,6]) ##
 
+#only extract relevant triggers (for correct trial counter) - some data sets have additional triggers
 relevant_trigger_sequence<-sort(c(grep('201',trigger_sequence),
                                   grep('202',trigger_sequence),
                                   grep('203',trigger_sequence),
                                   grep('204',trigger_sequence)))
 
 trial_counter<-seq_along(relevant_trigger_sequence)
+length(trial_counter) ###always be 1400
 
+# which trial are retained from the complete sequence
 retained_trigger_of_type<-relevant_trigger_sequence %in% retained_triggers
 
+#return trial counter for these retained trials
 retained_trials<-trial_counter[retained_trigger_of_type]
 
-
-##test
+##add to data set
 length_of_epoch<-table(one_data_set$epoch)[1]
-
-
-
 one_data_set$trial_counter<-rep(retained_trials,each=length_of_epoch)
 
+#### add ID, condition, timepoint variable ####
+
+ID<-substr(one_data_file_path,1,12)
+condition<-substr(one_data_file_path,14,16)
+timepoint<-as.character(one_set$EEG[[which(var_names == 'euaims')]][[5]])
+
+one_data_set$ID<-ID
+one_data_set$condition<-condition
+one_data_set$timepoint<-timepoint
+
 ###--> batch for all participants ####
+
+#other info
+#trial_info<-as.numeric(one_set$EEG[[which(var_names == 'trialskeep')]])
+
+#TODO:
+#--> batch across participants
+
+
 
 ###testing
 
 colnames(one_data_set)
 
-ggplot(one_data_set,aes(x=times,y=T8))+geom_smooth()
+table(one_data_set$timepoint)
+
+ggplot(one_data_set,aes(x=times,y=FC2))+geom_smooth()
 
