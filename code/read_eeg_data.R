@@ -108,6 +108,7 @@ require(R.matlab) #read matlab files
 require(dplyr) #mutate function
 require(pbapply)
 require(zoo) #rolling mean
+require(data.table) #rbindlist
 
 #plyr is implicitly called but not loaded as it overshadows some dplyr functions
 
@@ -155,8 +156,8 @@ fun_read_eeglab_output<-function(files_to_read){
       #one_set<-readMat(paste(data_path,"combined/196084871273_204_CombinedNB.set",sep='/'))
       #files_to_read<-file_list_set[1]
 #
-#       one_set<-readMat(paste(data_path,file_list_set[104],sep='/'))
-#       one_data_file_path<-paste0(substr(file_list_set[104],1,nchar(file_list_set[104])-4),'.fdt')
+       one_set<-readMat(paste(data_path,file_list_set[1],sep='/'))
+       one_data_file_path<-paste0(substr(file_list_set[1],1,nchar(file_list_set[104])-4),'.fdt')
 #
 #       one_set<-readMat(paste(data_path,failed_files[8],sep='/'))
 #       one_data_file_path<-paste0(substr(failed_files[8],1,nchar(failed_files[8])-4),'.fdt')
@@ -316,7 +317,7 @@ save(list_eeg,file="C:/Users/nico/Desktop/leap_oddball_eeg_list.rdata")
 df_eeg<-data.table::rbindlist(list_eeg) ##very fast compared to do.call(rbind)
 
 
-###--> visualize Fz data
+###--> visualize Fz data ####
 
 require(ggplot2)
 require(gridExtra)
@@ -330,7 +331,7 @@ subsample<-sample(1:nrow(df_eeg),nrow(df_eeg)/100)
 
 ggplot(df_eeg[subsample,],aes(x=times,y=Fz,group=condition_recovered,color=condition_recovered))+geom_smooth()
 
-###---> calculate MMN
+###---> calculate MMN ####
 
 fun_estimate_mmn<-function(one_set){
 
@@ -356,8 +357,180 @@ fun_estimate_mmn<-function(one_set){
 
 list_mmn<-pblapply(list_eeg,fun_estimate_mmn)
 
+##--> create data frame
+ID<-substr(names(list_mmn),10,22)
+condition<-substr(names(list_mmn),1,8)
 
-###takes around 2 hours
+list_mmn<-pbmapply(function(x,y,z){
+  x$condition<-y
+  x$ID<-z
+  return(x)
+  },x=list_mmn,y=condition,z=ID,SIMPLIFY = F)
+
+df_mmn<-data.table::rbindlist(list_mmn)
+
+df_mmn$trial_counter<-as.numeric(df_mmn$trial_counter)
+df_mmn$condition<-as.factor(df_mmn$condition)
+
+##-investigate
+with(df_mmn,by(mmn,condition,summary))
+with(df_mmn,hist(mmn))
+with(df_mmn,table(condition))
+
+
+### investigate mmn ####
+
+require(lme4)
+require(lmerTest)
+require(emmeans)
+
+lmm<-lmer(scale(mmn)~condition*trial_counter+(1|ID),data=df_mmn)
+
+anova(lmm)
+plot(contrast(emmeans(lmm,~condition),'pairwise'))
+fixef(lmm)['trial_counter']
+###-->
+
+    #create plot --> of contrasts
+    plot_task_effect<-plot(contrast(emmeans(lmm,~condition),'pairwise'))[['data']]
+
+    #modify plot
+    ggplot(plot_task_effect,aes(x=contrast,y=the.emmean))+
+      #conventional error bar
+      geom_errorbar(aes(min=asymp.LCL,max=asymp.UCL),width=0.2)+
+      geom_boxplot(aes(fill=contrast,
+                       middle=the.emmean,
+                       lower=the.emmean-1.5*SE,
+                       upper=the.emmean+1.5*SE,
+                       ymin=asymp.LCL,
+                       ymax=asymp.UCL),stat = "identity",alpha=0.7)+
+      #scale_fill_manual(values = custom_contrast_colors,labels = c('standard - pitch','standard - length','standard - pitch & length','pitch - length','pitch - pitch & length','length - pitch & length'))+
+      scale_x_discrete(labels = NULL, breaks = NULL)+ #remove x-axis tick labels
+      #coord_cartesian(ylim = c(-0.1, 0.1))+
+      labs(x='contrast of task condition',y='MMN difference (z)')
+
+### MERGE WITH df_trial ####
+
+load("C:/Users/nico/PowerFolders/project_oddball_LEAP/data/mmn_leap_pd_final_dfs_21022023")
+
+##prepare set
+df_mmn$ID<-sub('/','',df_mmn$ID)
+df_mmn$ID<-sub('_','',df_mmn$ID)
+
+    table(df_mmn$ID)
+    table(df_trial$id)
+    table(df_trial$subjects)
+
+    with(df_timepoint,table(subjects,wave))
+
+    #compare data frame to merge
+    hist(df_trial$EventCounter)
+    hist(df_mmn$trial_counter)
+
+    #eye-tracking data with MMN data
+    table(df_timepoint$subjects %in% df_mmn$ID)
+    table(unique(df_mmn$ID) %in% df_timepoint$subjects)
+
+
+df_mmn$merge_id<-interaction(df_mmn$ID,df_mmn$trial_counter)
+df_trial$merge_id<-interaction(df_trial$subjects,df_trial$EventCounter)
+
+df_trial<-merge(df_trial,df_mmn,by='merge_id',all.x=T)
+
+table(is.na(df_trial$mmn))
+
+with(df_trial,table(condition,EventData))
+##some are not correctly matched
+df_trial_mmn<-df_trial[(df_trial$EventData=='201' & df_trial$condition=='standard'|
+                 df_trial$EventData=='203' & df_trial$condition=='duration'|
+                 df_trial$EventData=='202' & df_trial$condition=='frequenc'|
+                 df_trial$EventData=='204' & df_trial$condition=='combined'),]
+
+###aggregate to df_timepoint
+
+df_mmn_timepoint<-aggregate(mmn~id+EventData,data=df_trial_mmn,FUN=mean,na.rm=T)
+df_mmn_timepoint<-reshape(df_mmn_timepoint, idvar = "id", timevar = "EventData", direction = "wide")
+df_timepoint<-merge(df_timepoint,df_mmn_timepoint,by='id',all.x = T)
+
+###which participants have MMN data
+table(is.na(df_timepoint$mmn.201),df_timepoint$t1_diagnosis) ##
+
+
+###calculate MMN as difference measures
+df_timepoint$mmn_202_diff<-with(df_timepoint,mmn.202-mmn.201)
+df_timepoint$mmn_203_diff<-with(df_timepoint,mmn.203-mmn.201)
+df_timepoint$mmn_204_diff<-with(df_timepoint,mmn.204-mmn.201)
+
+
+
+with(df_timepoint,cor.test(rpd_auc.201,mmn.201))
+with(df_timepoint,cor.test(rpd_auc.202,mmn.202))
+with(df_timepoint,cor.test(rpd_auc.203,mmn.203))
+with(df_timepoint,cor.test(rpd_auc.204,mmn.204))
+
+with(df_timepoint,cor.test(rpd_auc.201,pd))
+with(df_timepoint,cor.test(rpd_auc.202,pd))
+with(df_timepoint,cor.test(rpd_auc.203,pd))
+with(df_timepoint,cor.test(rpd_auc.204,pd))
+
+with(df_timepoint,cor.test(mmn.201,pd))
+with(df_timepoint,cor.test(mmn.202,pd))
+with(df_timepoint,cor.test(mmn.203,pd))
+with(df_timepoint,cor.test(mmn.204,pd))
+###--> expected correlations of pd_baseline with MMN
+
+with(df_timepoint,cor.test(mmn_202_diff,pd))
+with(df_timepoint,cor.test(mmn_203_diff,pd))
+with(df_timepoint,cor.test(mmn_204_diff,pd))
+
+with(df_timepoint,cor.test(mmn_202_diff,rpd_auc.202))
+with(df_timepoint,cor.test(mmn_203_diff,rpd_auc.203))
+with(df_timepoint,cor.test(mmn_204_diff,rpd_auc.204))
+
+#ANALYSIS ####
+
+### in aggregated data
+
+#MMN
+lm_mmn<-lm(scale(mmn_202_diff)~t1_diagnosis,df_timepoint)
+anova(lm_mmn)
+
+lm_mmn<-lm(scale(mmn_203_diff)~t1_diagnosis,df_timepoint)
+anova(lm_mmn)
+
+lm_mmn<-lm(scale(mmn_204_diff)~t1_diagnosis,df_timepoint)
+anova(lm_mmn)
+
+
+with(df_timepoint,by(mmn_202_diff,t1_diagnosis,summary))
+with(df_timepoint,by(mmn_203_diff,t1_diagnosis,summary))
+
+effectsize::cohens_d(x=scale(mmn_202_diff)~t1_diagnosis,data=df_timepoint)
+effectsize::cohens_d(x=scale(mmn_203_diff)~t1_diagnosis,data=df_timepoint)
+### rather stronger MMN in ASD
+
+
+#task effects
+lmm<-lmer(scale(mmn)~EventData*EventCounter+(1|subjects),df_trial_mmn)
+anova(lmm)
+
+fixef(lmm)['EventCounter'] ### reduction in MMN with trial counter
+contrast(emmeans(lmm,~EventData),'pairwise') ### oddballs associated with lower MMN
+
+
+
+##group differences
+lmm<-lmer(scale(mmn)~EventData*t1_diagnosis*EventCounter+(1|subjects),df_trial_mmn)
+anova(lmm)
+contrast(emmeans(lmm,~EventData|t1_diagnosis),'pairwise')
+plot(emmeans(lmm,~EventData|t1_diagnosis))
+
+confint(contrast(emtrends(lmm,~t1_diagnosis|EventData,var='EventCounter'),'pairwise'))
+plot(emtrends(lmm,~t1_diagnosis|EventData,var='EventCounter'))
+
+
+
+names(df_trial)
 
 ###TESTING ####
 

@@ -1249,7 +1249,7 @@ summary(lm(scale(gain_pcdm)~sex,df_timepoint[df_timepoint$Rsq_pcdm>0.2,]))
 
 ```
 
-#supplementary analyses
+# supplementary analyses
 
 ## linearity of effect of trial number
 
