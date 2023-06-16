@@ -107,7 +107,9 @@
 require(R.matlab) #read matlab files
 require(dplyr) #mutate function
 require(pbapply)
+require(zoo) #rolling mean
 
+#plyr is implicitly called but not loaded as it overshadows some dplyr functions
 
 
 ### paths ####
@@ -118,26 +120,56 @@ file_list<-list.files(data_path,recursive=T)
 file_list_set<-file_list[grepl(".set",file_list)] #.set files only contain the data structure
 file_list_fdt<-file_list[grepl(".fdt",file_list)] #.fdt contains actual data - but as binary format
 
+    # ###exclude participants with missing data --> FIXED BELOW
+    # file_list_set<-file_list_set[-grep('196084871273',file_list_set)] #have the trial are missing for 204 binary
+    # file_list_fdt<-file_list_fdt[-grep('196084871273',file_list_fdt)]
+    # file_list_set<-file_list_set[-grep('321466110510',file_list_set)] #have the trial are missing for 204 binary
+    # file_list_fdt<-file_list_fdt[-grep('321466110510',file_list_fdt)]
+    # file_list_set<-file_list_set[-grep('322708064836',file_list_set)] #have the trial are missing for 204 binary
+    # file_list_fdt<-file_list_fdt[-grep('322708064836',file_list_fdt)]
+    # file_list_set<-file_list_set[-grep('495779827165',file_list_set)] #have the trial are missing for 204 binary
+    # file_list_fdt<-file_list_fdt[-grep('495779827165',file_list_fdt)]
+
+
+
       ###analyze data structure
       number_of_conditions<-4
       length(file_list_set)/number_of_conditions
       ###--> 462 data sets
 
+
 ###DEFINE FUNCTION ####
 
 fun_read_eeglab_output<-function(files_to_read){
 
+  print(paste0('processing: ',files_to_read))
+
 ###READ DATA ####
 
-      # #testing
+      #testing
       # testing_set<-188
       # one_set<-readMat(paste(data_path,file_list_set[testing_set],sep='/'))
+      # "combined/196084871273_204_CombinedNB.set"
+      # length(file_list_fdt)
+      # length(unique(file_list_fdt))
+      #one_set<-readMat(paste(data_path,"combined/196084871273_204_CombinedNB.set",sep='/'))
+      #files_to_read<-file_list_set[1]
+#
+#       one_set<-readMat(paste(data_path,file_list_set[104],sep='/'))
+#       one_data_file_path<-paste0(substr(file_list_set[104],1,nchar(file_list_set[104])-4),'.fdt')
+#
+#       one_set<-readMat(paste(data_path,failed_files[8],sep='/'))
+#       one_data_file_path<-paste0(substr(failed_files[8],1,nchar(failed_files[8])-4),'.fdt')
+
 
 #read meta data
 one_set<-readMat(paste(data_path,files_to_read,sep='/'))
 
-#name of data file in meta data
-one_data_file_path<-unlist(one_set[[1]][43])
+# #name of data file in meta data
+# one_data_file_path<-unlist(one_set[[1]][43]) #may has more than one entry
+# #one_set<-readMat(paste(data_path,"combined/196084871273_204_CombinedNB.set",sep='/')) # this has a weird one_data_file_path output
+# #alternative approach
+one_data_file_path<-paste0(substr(files_to_read,1,nchar(files_to_read)-4),'.fdt')
 
 #meta data structure
 #one_set$EEG
@@ -190,26 +222,39 @@ one_data_set <- one_data_set %>%
 
 #### extract trial information from epoch meta data ####
 
-#information on retained triggers of trials is in there
-epochs_retained<-one_set$EEG[[which(var_names == 'epoch')]]
-epochs_retained<-data.frame(matrix(unlist(epochs_retained),ncol=6,byrow=T)) #bring matrix into right format
-
-#information on ALL triggers of trials is in there
+#GET all triggers that were recorded in raw data
+# --for some participants - the strucutre of urevent is different - need to be formatted different to retrieve correct trigger_sequence
+# --this different structure can be detected in the meta data: one_set[[1]][43][[1]]
+if(length(one_set[[1]][43][[1]])!=1){
 events_all<-one_set$EEG[[which(var_names == 'urevent')]] #event trigger in raw data
-events_all<-data.frame(matrix(unlist(events_all),ncol=4,byrow=T)) #bring matrix into right format
+events_all<-data.frame(matrix(unlist(events_all),ncol=2,byrow=T)) #bring matrix into right format - 2 instead of 4 cols
 trigger_sequence<-events_all[,1] #extract trigger
+}
 
-#information which triggers are retained for final anaylsis
-retained_triggers<-as.numeric(epochs_retained[,6]) ##
+if(length(one_set[[1]][43][[1]])==1){
+  events_all<-one_set$EEG[[which(var_names == 'urevent')]] #event trigger in raw data
+  events_all<-data.frame(matrix(unlist(events_all),ncol=4,byrow=T)) #bring matrix into right format
+  trigger_sequence<-events_all[,1] #extract trigger
+}
 
-#only extract relevant triggers (for correct trial counter) - some data sets have additional triggers
+#only extract task relevant triggers (for correct trial counter) - some data sets have additional triggers
 relevant_trigger_sequence<-sort(c(grep('201',trigger_sequence),
                                   grep('202',trigger_sequence),
                                   grep('203',trigger_sequence),
                                   grep('204',trigger_sequence)))
 
+#create trial sequence based on relevant triggers
 trial_counter<-seq_along(relevant_trigger_sequence)
-length(trial_counter) ###always be 1400
+
+    #DEBUGGING
+    print(length(trial_counter)) ###always be 1400
+
+
+#information on retained triggers of trials is in EPOCH meta data
+epochs_retained<-one_set$EEG[[which(var_names == 'epoch')]]
+epochs_retained<-data.frame(matrix(unlist(epochs_retained),ncol=6,byrow=T)) #bring matrix into right format
+retained_triggers<-as.numeric(epochs_retained[,6]) #information which triggers are retained for final anaylsis
+
 
 # which trial are retained from the complete sequence
 retained_trigger_of_type<-relevant_trigger_sequence %in% retained_triggers
@@ -217,25 +262,130 @@ retained_trigger_of_type<-relevant_trigger_sequence %in% retained_triggers
 #return trial counter for these retained trials
 retained_trials<-trial_counter[retained_trigger_of_type]
 
+    # #checking
+      print(table(trigger_sequence[relevant_trigger_sequence])) #only 201, 202, 203, 204
+      print(table(trigger_sequence[retained_triggers])) #only current condition of .fdt file
+
 ##add to data set
 length_of_epoch<-table(one_data_set$epoch)[1]
 one_data_set$trial_counter<-rep(retained_trials,each=length_of_epoch)
 
-#### add ID, condition, timepoint variable ####
+#### ADD ID, condition, timepoint variable ####
 
-ID<-substr(one_data_file_path,1,12)
-condition<-substr(one_data_file_path,14,16)
+ID<-substr(one_data_file_path,10,22)
+condition<-substr(one_data_file_path,1,8)
 timepoint<-as.character(one_set$EEG[[which(var_names == 'euaims')]][[5]])
 
 one_data_set$ID<-ID
 one_data_set$condition<-condition
 one_data_set$timepoint<-timepoint
 
+
+### DROP CHANNEL to reduce file size ####
+
+one_data_set<-one_data_set[,c('Fz','F1','F2','Cz','Pz','times','epoch','trial_counter','ID','condition')]
+
+
 return(one_data_set)
 
 }
 
-###--> batch for all participants ####
+###--> LOAD Data of some electrodes for all participants ####
+
+###reread - all eeg data - to correct condition and ID
+list_eeg<-pblapply(file_list_set,fun_read_eeglab_output)
+
+        # ### correct ID and condition --> has now also been fixed above
+        # names(list_eeg)<-file_list_set
+        #
+        # condition<-substr(file_list_set,1,8)
+        # ID<-substr(file_list_set,10,22)
+        #
+        # list_eeg<-pbmapply(function(x,y){
+        #   x$condition<-y
+        #   return(x)
+        #   },x=list_eeg,y=condition,SIMPLIFY = F)
+        #
+        # list_eeg<-pbmapply(function(x,y){
+        #   x$ID<-y
+        #   return(x)
+        #   },x=list_eeg,y=ID,SIMPLIFY = F)
+
+
+save(list_eeg,file="C:/Users/nico/Desktop/leap_oddball_eeg_list.rdata")
+df_eeg<-data.table::rbindlist(list_eeg) ##very fast compared to do.call(rbind)
+
+
+###--> visualize Fz data
+
+require(ggplot2)
+require(gridExtra)
+theme_set(theme_bw())
+
+
+df_eeg$condition_recovered<-as.factor(substr(df_eeg$ID,1,8))
+table(df_eeg$condition_recovered)
+
+subsample<-sample(1:nrow(df_eeg),nrow(df_eeg)/100)
+
+ggplot(df_eeg[subsample,],aes(x=times,y=Fz,group=condition_recovered,color=condition_recovered))+geom_smooth()
+
+###---> calculate MMN
+
+fun_estimate_mmn<-function(one_set){
+
+  #testing
+  #one_set<-list_eeg[[100]]
+
+  ###restrict to timeframe - 35-350ms
+  one_set<-one_set[one_set$times>50 & one_set$times<350,]
+
+  mmn_trial<-with(one_set,by(Fz,trial_counter,function(channel_data){
+
+      channel_data_smooth<-rollmean(channel_data,k=20) #rolling mean of 20ms
+      min(channel_data_smooth)
+
+  }))
+
+  trial_counter<-names(mmn_trial)
+  mmn<-as.numeric(mmn_trial)
+  mmn_per_trial<-data.frame(trial_counter,mmn)
+  return(mmn_per_trial)
+
+}
+
+list_mmn<-pblapply(list_eeg,fun_estimate_mmn)
+
+
+###takes around 2 hours
+
+###TESTING ####
+
+      fun_bench_find_datafile<-function(files_to_read){
+
+        print(paste0('processing: ',files_to_read))
+
+        #read meta data
+        one_set<-readMat(paste(data_path,files_to_read,sep='/'))
+
+        # #name of data file in meta data
+        one_data_file_path<-length(unlist(one_set[[1]][43])) #may has more than one entry
+        # #one_set<-readMat(paste(data_path,"combined/196084871273_204_CombinedNB.set",sep='/')) # this has a weird one_data_file_path output
+        # #alternative approach
+        # one_data_file_path<-paste0(substr(files_to_read,1,nchar(files_to_read)-4),'.fdt')
+        return(cbind(files_to_read,one_data_file_path))
+      }
+
+      list_bench<-pblapply(file_list_set,fun_bench_find_datafile)
+      #--> takes two hours
+
+      list_bench[[1]][2]
+      index_of_files_that_fail<-which(sapply(list_bench,function(x){x[2]})!=1)
+      failed_files<-sapply(list_bench[index_of_files_that_fail],function(x){x[1]})
+      ###--> these fails fail as meta data field refers to wrong data file
+
+      test_list_of_failed<-pblapply(failed_files,fun_read_eeglab_output)
+      ###--> process all failed files with modified  function
 
 
 sample_set<-sample(1:length(file_list_set),30)
@@ -243,6 +393,8 @@ test_list<-pblapply(file_list_set[sample_set],fun_read_eeglab_output)
 
 
 hist(unlist(sapply(test_list,function(x){x['trial_counter']})),10)
+summary(unlist(sapply(test_list,function(x){x['trial_counter']})),10)
+
 #--> even distribution of trials
 
 table(unlist(sapply(test_list,function(x){x['epoch']})))
@@ -250,13 +402,10 @@ table(unlist(sapply(test_list,function(x){x['epoch']})))
 
 ###plot eeg
 
-list_selected_electrodes<-pblapply(test_list,function(x){x[,c('Fz','Pz','Cz','times','epoch','trial_counter','ID','condition')]})
+list_selected_electrodes<-pblapply(test_list,function(x){x[,c('Fz','F1','F2','Cz','Pz','times','epoch','trial_counter','ID','condition')]})
 df_eeg<-plyr::rbind.fill(list_selected_electrodes)
 
 
-require(ggplot2)
-require(gridExtra)
-theme_set(theme_bw())
 
 
 ggplot(df_eeg,aes(x=times,y=Fz,group=condition,color=condition))+geom_smooth()
