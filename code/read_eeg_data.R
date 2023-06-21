@@ -105,12 +105,28 @@
 
 #### packages
 require(R.matlab) #read matlab files
-require(dplyr) #mutate function
+require(dplyr) #mutate function - in function
+
 require(pbapply)
 require(zoo) #rolling mean
 require(data.table) #rbindlist
 
+#visualization
+require(wesanderson) #custom colors
+require(ggplot2)
+require(gridExtra)
+require(RColorBrewer)
+
 #plyr is implicitly called but not loaded as it overshadows some dplyr functions
+
+project_path<-"C:/Users/nico/PowerFolders/project_oddball_LEAP"
+
+
+##custom themes
+#define color palette
+theme_set(theme_bw())
+custom_contrast_colors <- c(brewer.pal(6, "Blues")[4:6],brewer.pal(6, "Oranges")[4:6])
+
 
 
 ### paths ####
@@ -284,14 +300,14 @@ one_data_set$timepoint<-timepoint
 
 ### DROP CHANNEL to reduce file size ####
 
-one_data_set<-one_data_set[,c('Fz','F1','F2','Cz','Pz','times','epoch','trial_counter','ID','condition')]
+#one_data_set<-one_data_set[,c('Fz','F1','F2','Cz','Pz','times','epoch','trial_counter','ID','condition')]
 
 
 return(one_data_set)
 
 }
 
-###--> LOAD Data of some electrodes for all participants ####
+###--> LOAD EEG Data of all participants ####
 
 ###reread - all eeg data - to correct condition and ID
 list_eeg<-pblapply(file_list_set,fun_read_eeglab_output)
@@ -312,24 +328,145 @@ list_eeg<-pblapply(file_list_set,fun_read_eeglab_output)
         #   return(x)
         #   },x=list_eeg,y=ID,SIMPLIFY = F)
 
+#save(list_eeg,file="C:/Users/nico/Desktop/leap_oddball_eeg_list.rdata")
+save(list_eeg,file="C:/Users/nico/Desktop/leap_oddball_eeg_list_allchannels2.rdata")
 
-save(list_eeg,file="C:/Users/nico/Desktop/leap_oddball_eeg_list.rdata")
-df_eeg<-data.table::rbindlist(list_eeg) ##very fast compared to do.call(rbind)
+###--> SCALP map - requires data of all EEG channels ####
+
+load(file="C:/Users/nico/Desktop/leap_oddball_eeg_list_allchannels2.rdata")
+
+#for standard coordinates
+require(eegkit)
+data(eegcoord) #load sample set with standard coordinates
+rownames(eegcoord)
+
+#for scalp topographical map
+# install.packages("remotes")
+# remotes::install_github("craddm/eegUtils")
+require(eegUtils)
+
+###load a dataset
+#load(file="C:/Users/nico/Desktop/leap_oddball_eeg_list_allchannels2.rdata")
+
+#select 30 random from each condition - same participants
+combined_sampled<-sample(1:(length(list_eeg)/4),30)
+duration_sampled<-combined_sampled+length(list_eeg)/4
+frequency_sampled<-combined_sampled+2*length(list_eeg)/4
+standard_sampled<-combined_sampled+3*length(list_eeg)/4
+
+select_samples<-c(combined_sampled,
+                  duration_sampled,
+                  frequency_sampled,
+                  standard_sampled)
+
+#select thirty random participants
+list_eeg_selected<-list_eeg[select_samples]
+
+fun_prepare_channeldata_plotting<-function(one_set,sample_coordinates){
+
+  #match names of sample coordnisates and data set
+  names(one_set)<-toupper(names(one_set)) #capitalize names - naming convention of eegkit
+  sample_coordinates<-sample_coordinates[rownames(sample_coordinates) %in% names(one_set),]
+  sample_coordinates$variable<-rownames(sample_coordinates)
+
+  one_set$TIMES<-as.factor(one_set$TIMES) #preserve in melting
+  one_set<-reshape2::melt(one_set,value.name='amplitude') #convert to long format
+
+  one_set<-merge(one_set,sample_coordinates,by='variable') #merge with sample coordniates
+  names(one_set)[1]<-'electrode' #set name for later plotting function
+  one_set$TIMES<-as.numeric(one_set$TIMES) #return to numeric
+  return(one_set)
+
+      }
+
+list_eeg_selected<-pblapply(list_eeg_selected,fun_prepare_channeldata_plotting,sample_coordinates=eegcoord)
+df_plot<-data.table::rbindlist(list_eeg_selected)
+
+#scalp topography separated for condition
+g_tm1<-topoplot(df_plot[df_plot$CONDITION=='standard' & df_plot$TIMES>250 & df_plot$TIMES<350,], #select time
+         interp_limit='head',limits=c(-3,3))+labs(title='standard') #scale coordniates to head
+
+g_tm2<-topoplot(df_plot[df_plot$CONDITION=='duration' & df_plot$TIMES>250 & df_plot$TIMES<350,], #select time
+         interp_limit='head',limits=c(-3,3))+labs(title='length oddball') #scale coordniates to head
+
+g_tm3<-topoplot(df_plot[df_plot$CONDITION=='frequenc' & df_plot$TIMES>250 & df_plot$TIMES<350,], #select time
+         interp_limit='head',limits=c(-3,3))+labs(title='pitch oddball') #scale coordniates to head
+
+g_tm4<-topoplot(df_plot[df_plot$CONDITION=='combined' & df_plot$TIMES>250 & df_plot$TIMES<350,], #select time
+         interp_limit='head',limits=c(-3,3))+labs(title='pitch & length oddball') #scale coordniates to head
+
+
+#prepare data for plotting
+df_plot$times<-df_plot$TIMES-100
+custom_condition_colors <- rev(wes_palette('FantasticFox1',5,type='discrete')[2:5]) #reverse custom colors to match color coding in other figures
+
+
+##TODO: replace with section below
+g_main<-ggplot(df_plot[df_plot$electrode=="FZ",],aes(x=times,y=amplitude,group=CONDITION,color=CONDITION,fill=CONDITION))+geom_smooth()+
+  labs(y='electrode Fz - amplitute (uV)',x='trial duration (ms)')+
+  scale_fill_manual(values = custom_condition_colors, labels=c("standard" = "standard", "frequenc" = "pitch oddball", "duration" = "length oddball ", "combined" = "pitch & length oddball"))+
+  scale_color_manual(values = custom_condition_colors, labels=c("standard" = "standard", "frequenc" = "pitch oddball", "duration" = "length oddball ", "combined" = "pitch & length oddball"))
+
+
+#ggplot(df_plot[df_plot$electrode %in% c('FZ','F1','F2','FC1','FC2'),],aes(x=times,y=amplitude,group=CONDITION,color=CONDITION,fill=CONDITION))+geom_smooth()
+
+table(df_plot$electrode)
+
+#extract legend
+g_legend<-function(x){
+  tmp <- ggplot_gtable(ggplot_build(x))
+  leg <- which(sapply(tmp$grobs, function(x) x$name) == "guide-box")
+  legend <- tmp$grobs[[leg]]
+  return(legend)}
+
+mylegend<-g_legend(g_tm1)
+
+
+# #grid arrange plot
+# grid.arrange(
+#   g_main,
+#   arrangeGrob(
+#     g_tm1 + theme(legend.position="none"),
+#     g_tm2 + theme(legend.position="none"),
+#     g_tm3 + theme(legend.position="none"),
+#     g_tm4 + theme(legend.position="none"),nrow=2),
+#   mylegend, ncol=3, widths=c(7,5,1))
+
+
+#save to file
+tiff(file=paste0(project_path,"/output/figures/figure_mmn_eeg3.tiff"), # create a file in tiff format in current working directory
+     width=12, height=5, units="in", res=300, compression='lzw') #define size and resolution of the resulting figure
+
+grid.arrange(
+  g_main,
+  arrangeGrob(
+    g_tm1 + theme(legend.position="none"),
+    g_tm2 + theme(legend.position="none"),
+    g_tm3 + theme(legend.position="none"),
+    g_tm4 + theme(legend.position="none"),nrow=2),
+  mylegend, ncol=3, widths=c(7,5,1))
+
+dev.off() #close operation and save file
+
+
+
 
 
 ###--> visualize Fz data ####
 
-require(ggplot2)
-require(gridExtra)
-theme_set(theme_bw())
+#load(file="C:/Users/nico/Desktop/leap_oddball_eeg_list.rdata")
+load(paste0(project_path,"data/leap_oddball_eeg_list.rdata"))
 
+df_eeg<-data.table::rbindlist(list_eeg) ##very fast compared to do.call(rbind)
 
-df_eeg$condition_recovered<-as.factor(substr(df_eeg$ID,1,8))
-table(df_eeg$condition_recovered)
+subsample<-sample(1:nrow(df_eeg),nrow(df_eeg)/10)
+custom_condition_colors <- rev(wes_palette('FantasticFox1',5,type='discrete')[2:5]) #reverse custom colors to match color coding in other figures
 
-subsample<-sample(1:nrow(df_eeg),nrow(df_eeg)/100)
+ggplot(df_eeg[subsample,],aes(x=times,y=Fz,group=condition,color=condition,fill=condition))+geom_smooth()+
+  labs(y='electrode Fz - amplitute (uV)',x='trial duration (ms)')+
+  scale_fill_manual(values = custom_condition_colors, labels=c("standard" = "standard", "frequenc" = "pitch oddball", "duration" = "length oddball ", "combined" = "pitch & length oddball"))+
+  scale_color_manual(values = custom_condition_colors, labels=c("standard" = "standard", "frequenc" = "pitch oddball", "duration" = "length oddball ", "combined" = "pitch & length oddball"))
 
-ggplot(df_eeg[subsample,],aes(x=times,y=Fz,group=condition_recovered,color=condition_recovered))+geom_smooth()
 
 ###---> calculate MMN ####
 
@@ -372,17 +509,19 @@ df_mmn<-data.table::rbindlist(list_mmn)
 df_mmn$trial_counter<-as.numeric(df_mmn$trial_counter)
 df_mmn$condition<-as.factor(df_mmn$condition)
 
-##-investigate
-with(df_mmn,by(mmn,condition,summary))
-with(df_mmn,hist(mmn))
-with(df_mmn,table(condition))
-
-
 ### investigate mmn ####
 
 require(lme4)
 require(lmerTest)
 require(emmeans)
+
+##-investigate
+with(df_mmn,by(mmn,condition,summary))
+with(df_mmn,hist(mmn))
+with(df_mmn,table(condition))
+
+ggplot(df_mmn[df_mmn$mmn<10 & df_mmn$mmn>-20,],aes(x=mmn,group=condition,color=condition,fill=condition))+geom_density(alpha=0.2)
+
 
 lmm<-lmer(scale(mmn)~condition*trial_counter+(1|ID),data=df_mmn)
 
@@ -437,7 +576,9 @@ df_trial$merge_id<-interaction(df_trial$subjects,df_trial$EventCounter)
 
 df_trial<-merge(df_trial,df_mmn,by='merge_id',all.x=T)
 
-table(is.na(df_trial$mmn))
+    table(is.na(df_mmn$mmn))
+    table(is.na(df_trial$mmn))
+    table(is.na(df_trial$rpd_auc))
 
 with(df_trial,table(condition,EventData))
 ##some are not correctly matched
@@ -450,46 +591,81 @@ df_trial_mmn<-df_trial[(df_trial$EventData=='201' & df_trial$condition=='standar
 
 df_mmn_timepoint<-aggregate(mmn~id+EventData,data=df_trial_mmn,FUN=mean,na.rm=T)
 df_mmn_timepoint<-reshape(df_mmn_timepoint, idvar = "id", timevar = "EventData", direction = "wide")
+
 df_timepoint<-merge(df_timepoint,df_mmn_timepoint,by='id',all.x = T)
 
 ###which participants have MMN data
 table(is.na(df_timepoint$mmn.201),df_timepoint$t1_diagnosis) ##
-
 
 ###calculate MMN as difference measures
 df_timepoint$mmn_202_diff<-with(df_timepoint,mmn.202-mmn.201)
 df_timepoint$mmn_203_diff<-with(df_timepoint,mmn.203-mmn.201)
 df_timepoint$mmn_204_diff<-with(df_timepoint,mmn.204-mmn.201)
 
+###ANALYSIS OF MMN ####
+##### -- correlations on per trial level ####
+with(df_trial_mmn[df_trial_mmn$EventData=='201',],cor.test(rpd_auc,mmn))
+with(df_trial_mmn[df_trial_mmn$EventData=='202',],cor.test(rpd_auc,mmn))
+with(df_trial_mmn[df_trial_mmn$EventData=='203',],cor.test(rpd_auc,mmn))
+with(df_trial_mmn[df_trial_mmn$EventData=='204',],cor.test(rpd_auc,mmn))
+
+with(df_trial_mmn[df_trial_mmn$EventData=='201',],cor.test(pd,mmn))
+with(df_trial_mmn[df_trial_mmn$EventData=='202',],cor.test(pd,mmn))
+with(df_trial_mmn[df_trial_mmn$EventData=='203',],cor.test(pd,mmn))
+with(df_trial_mmn[df_trial_mmn$EventData=='204',],cor.test(pd,mmn))
 
 
+#### -- correlations on per-participant level ####
+
+#SEPR -PD
+with(df_timepoint,cor.test(rpd_auc.201,pd))
+with(df_timepoint,cor.test(rpd_auc.202,pd))
+with(df_timepoint,cor.test(rpd_auc.203,pd)) #positive
+with(df_timepoint,cor.test(rpd_auc.204,pd)) #negative
+
+#SEPR - MMN --> uncorrelated
 with(df_timepoint,cor.test(rpd_auc.201,mmn.201))
 with(df_timepoint,cor.test(rpd_auc.202,mmn.202))
 with(df_timepoint,cor.test(rpd_auc.203,mmn.203))
 with(df_timepoint,cor.test(rpd_auc.204,mmn.204))
 
-with(df_timepoint,cor.test(rpd_auc.201,pd))
-with(df_timepoint,cor.test(rpd_auc.202,pd))
-with(df_timepoint,cor.test(rpd_auc.203,pd))
-with(df_timepoint,cor.test(rpd_auc.204,pd))
-
+#BPS - MMN --> substantial negative correlations
 with(df_timepoint,cor.test(mmn.201,pd))
 with(df_timepoint,cor.test(mmn.202,pd))
 with(df_timepoint,cor.test(mmn.203,pd))
 with(df_timepoint,cor.test(mmn.204,pd))
-###--> expected correlations of pd_baseline with MMN
 
-with(df_timepoint,cor.test(mmn_202_diff,pd))
-with(df_timepoint,cor.test(mmn_203_diff,pd))
-with(df_timepoint,cor.test(mmn_204_diff,pd))
+# NG - BPS
+with(df_timepoint,cor.test(gain_pcdm,pd))
+with(df_timepoint,cor.test(gain_pcdm,pd))
+with(df_timepoint,cor.test(gain_pcdm,pd))
+with(df_timepoint,cor.test(gain_pcdm,pd))
 
-with(df_timepoint,cor.test(mmn_202_diff,rpd_auc.202))
-with(df_timepoint,cor.test(mmn_203_diff,rpd_auc.203))
-with(df_timepoint,cor.test(mmn_204_diff,rpd_auc.204))
+# NG - SEPR
+with(df_timepoint,cor.test(gain_pcdm,rpd_auc.201))
+with(df_timepoint,cor.test(gain_pcdm,rpd_auc.202))
+with(df_timepoint,cor.test(gain_pcdm,rpd_auc.203))
+with(df_timepoint,cor.test(gain_pcdm,rpd_auc.204))
 
-#ANALYSIS ####
+#NG - MMN
+with(df_timepoint,cor.test(gain_pcdm,mmn.201))
+with(df_timepoint,cor.test(gain_pcdm,mmn.202))
+with(df_timepoint,cor.test(gain_pcdm,mmn.203))
+with(df_timepoint,cor.test(gain_pcdm,mmn.204))
 
-### in aggregated data
+#Bonferoni correction for intitially significant correlations
+number_of_comparisons<-24
+as.numeric(with(df_timepoint,cor.test(rpd_auc.203,pd))['p.value'])*number_of_comparisons
+as.numeric(with(df_timepoint,cor.test(rpd_auc.204,pd))['p.value'])*number_of_comparisons
+as.numeric(with(df_timepoint,cor.test(mmn.201,pd))['p.value'])*number_of_comparisons
+as.numeric(with(df_timepoint,cor.test(mmn.202,pd))['p.value'])*number_of_comparisons
+as.numeric(with(df_timepoint,cor.test(mmn.203,pd))['p.value'])*number_of_comparisons
+as.numeric(with(df_timepoint,cor.test(mmn.204,pd))['p.value'])*number_of_comparisons
+
+
+
+
+#### -- linear models in aggregated data ####
 
 #MMN
 lm_mmn<-lm(scale(mmn_202_diff)~t1_diagnosis,df_timepoint)
@@ -510,27 +686,125 @@ effectsize::cohens_d(x=scale(mmn_203_diff)~t1_diagnosis,data=df_timepoint)
 ### rather stronger MMN in ASD
 
 
-#task effects
+#### --- task effects on MMN unaggregated ####
 lmm<-lmer(scale(mmn)~EventData*EventCounter+(1|subjects),df_trial_mmn)
 anova(lmm)
 
-fixef(lmm)['EventCounter'] ### reduction in MMN with trial counter
+fixef(lmm)['EventCounter'] ### increase in amplitude with trial counter
 contrast(emmeans(lmm,~EventData),'pairwise') ### oddballs associated with lower MMN
 
+      #create plot --> of contrasts
+      plot_task_effect<-plot(contrast(emmeans(lmm,~EventData),'pairwise'))[['data']]
+
+      #modify plot
+      g3<-ggplot(plot_task_effect,aes(x=contrast,y=the.emmean))+
+        #conventional error bar
+        geom_errorbar(aes(min=asymp.LCL,max=asymp.UCL),width=0.2)+
+        geom_boxplot(aes(fill=contrast,
+                         middle=the.emmean,
+                         lower=the.emmean-1.5*SE,
+                         upper=the.emmean+1.5*SE,
+                         ymin=asymp.LCL,
+                         ymax=asymp.UCL),stat = "identity",alpha=0.7)+
+        scale_fill_manual(values = custom_contrast_colors,labels = c('standard - pitch','standard - length','standard - pitch & length','pitch - length','pitch - pitch & length','length - pitch & length'))+
+        scale_x_discrete(labels = NULL, breaks = NULL)+ #remove x-axis tick labels
+        coord_cartesian(ylim = c(-0.1, 0.2))+
+        labs(x='contrast of task conditions',y='MMN difference (z)')
 
 
-##group differences
+              #SEPR -pupillary response - technical model
+              lmm<-lmer(scale(rpd_auc)~EventData+
+                          (1|subjects)+(1|wave),data=df_trial)
+
+              #create plot --> of contrasts
+              plot_task_effect<-plot(contrast(emmeans(lmm,~EventData),'pairwise'))[['data']]
+
+              #modify plot
+              g2<-ggplot(plot_task_effect,aes(x=contrast,y=the.emmean))+
+                #conventional error bar
+                geom_errorbar(aes(min=asymp.LCL,max=asymp.UCL),width=0.2)+
+
+                #boxplot
+                geom_boxplot(aes(fill=contrast,
+                                 middle=the.emmean,
+                                 lower=the.emmean-1.5*SE,
+                                 upper=the.emmean+1.5*SE,
+                                 ymin=asymp.LCL,
+                                 ymax=asymp.UCL),stat = "identity",alpha=0.7)+
+                scale_fill_manual(values = custom_contrast_colors,labels = c('standard - pitch','standard - length','standard - pitch & length','pitch - length','pitch - pitch & length','length - pitch & length'))+
+                scale_x_discrete(labels = NULL, breaks = NULL)+ #remove x-axis tick labels
+                coord_cartesian(ylim = c(-0.1, 0.2))+
+                labs(x='contrast of task conditions',y='SEPR difference (z)')
+
+              #BPS
+              lmm<-lmer(scale(pd_baseline)~EventData+
+                          (1|subjects)+(1|wave),data=df_trial)
+
+              #create plot --> of contrasts
+              plot_task_effect<-plot(contrast(emmeans(lmm,~EventData),'pairwise'))[['data']]
+
+              #modify plot
+              g1<-ggplot(plot_task_effect,aes(x=contrast,y=the.emmean))+
+                #conventional error bar
+                geom_errorbar(aes(min=asymp.LCL,max=asymp.UCL),width=0.2)+
+
+                # #overplot predicted values
+                # geom_jitter(data=df_plot_predicted_bps[complete.cases(df_plot_predicted_bps),],
+                #             aes(x=predicted_bps_eventdata,
+                #                 y=predicted_bps_mean,color=predicted_bps_eventdata),alpha=0.3,width=0.4,show.legend=F)+
+                #boxplot
+                geom_boxplot(aes(fill=contrast,
+                                 middle=the.emmean,
+                                 lower=the.emmean-1.5*SE,
+                                 upper=the.emmean+1.5*SE,
+                                 ymin=asymp.LCL,
+                                 ymax=asymp.UCL),stat = "identity",alpha=0.7)+
+                scale_fill_manual(values = custom_contrast_colors,labels = c('standard - pitch','standard - length','standard - pitch & length','pitch - length','pitch - pitch & length','length - pitch & length'))+
+                scale_x_discrete(labels = NULL, breaks = NULL)+ #remove x-axis tick labels
+                coord_cartesian(ylim = c(-0.1, 0.2))+
+                labs(x='contrast of task conditions',y='BPS difference (z)')
+
+              ###save figure
+
+              #plot in markdown
+              grid.arrange(g1+theme(legend.position="none"),g2+theme(legend.position="none"),g3,ncol=3,widths=c(1.2,1.2,2))
+
+              tiff(file=paste0(project_path,"/output/figures/figure_taskcondition_effects_BPS_SEPR_MMN.tiff"), # create a file in tiff format in current working directory
+                   width=10, height=4, units="in", res=300, compression='lzw') #define size and resolution of the resulting figure
+
+              grid.arrange(g1+theme(legend.position="none"),g2+theme(legend.position="none"),g3,ncol=3,widths=c(1.2,1.2,2))
+
+              dev.off() #close operation and save file
+
+
+#### -- unaggregated effects of BPS and SEPR on MMN #####
+
+lmm<-lmer(scale(mmn)~scale(pd_baseline)*EventData*EventCounter+(1|subjects),df_trial_mmn)
+anova(lmm)
+
+fixef(lmm)
+###higer baseline with lower MMN amplitude
+
+lmm<-lmer(scale(mmn)~scale(rpd_auc)*EventData*EventCounter+(1|subjects),df_trial_mmn)
+anova(lmm)
+
+fixef(lmm)
+###higer respone with higher MMN amplitude
+
+
+#### -- group differences ####
 lmm<-lmer(scale(mmn)~EventData*t1_diagnosis*EventCounter+(1|subjects),df_trial_mmn)
 anova(lmm)
-contrast(emmeans(lmm,~EventData|t1_diagnosis),'pairwise')
-plot(emmeans(lmm,~EventData|t1_diagnosis))
+
 
 confint(contrast(emtrends(lmm,~t1_diagnosis|EventData,var='EventCounter'),'pairwise'))
 plot(emtrends(lmm,~t1_diagnosis|EventData,var='EventCounter'))
+####--> effect directions follow rpd effects
+
+lmm<-lmer(scale(mmn)~EventData*t1_diagnosis*sequence_position+(1|subjects),df_trial_mmn)
+anova(lmm)
 
 
-
-names(df_trial)
 
 ###TESTING ####
 
