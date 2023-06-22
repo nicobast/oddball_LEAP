@@ -453,12 +453,12 @@ cor_table$p_adjust<-ifelse(cor_table$p_adjust>1,1,cor_table$p_adjust)
 
 #produce table
 cor_table_format<-cor_table %>%
-    kbl(caption = "correlations of BPS, SEPR, MMN, NG") %>%
+    kbl(caption = "correlations of baseline pupil size (BPS), stimulus-evoked pupillary response (SEPR), mismatch negativity (MMN), and neural gain (NG) for different stimuli (201 = standard, 202 = pitch oddball, 203 = length oddball, 204 = pitch & length oddball).") %>%
     kable_classic(full_width = F, html_font = "Cambria")
 
 cor_table_format
 
-save(cor_table_format,file=paste0(project_path,'/output/supplements/associations_DV_perparticipant.html'))
+save_kable(cor_table_format,file=paste0(project_path,'/output/supplements/associations_DV_perparticipant.html'))
   
 ```
 
@@ -824,6 +824,7 @@ dev.off() #close operation and save file
 
 ```
 
+
 # task effects
 
 investigates influence of stimulus and task progression on pupillary measures (BPS, SEPR) and EEG measure (MMN)
@@ -996,7 +997,7 @@ BF_BIC
 ```{r task_progression_on_BPS}
   
 ## include trial characteristics - TASK PROGRESSION
-  lmm<-lmer(scale(pd_baseline)~EventCounter+
+  lmm<-lmer(scale(pd_baseline)~stats::poly(EventCounter,3)+
               (1|subjects)+(1|wave),data=df_trial)
   
   anova(lmm)
@@ -1004,14 +1005,13 @@ BF_BIC
   cbind(round(fixef(lmm)['EventCounter'],9),
                 round(confint(lmm,parm = 'EventCounter'),9))
 
-  
-  confint(contrast(emmeans(lmm,~EventCounter,at=list(EventCounter =     seq(1,1400,1399))),'pairwise'))
+  confint(contrast(emmeans(lmm,~EventCounter,at=list(EventCounter =     seq(1,1400,699))),'revpairwise'))
 
 r2_nakagawa(lmm)  
  
 
 #BIC Bayes Factor
-lmm_ML<-lmer(scale(pd_baseline)~EventCounter+
+lmm_ML<-lmer(scale(pd_baseline)~stats::poly(EventCounter,3)+
               (1|subjects)+(1|wave),data=df_trial,REML=F)
 
 null_lmm_ML <- lmer(scale(pd_baseline)~1+
@@ -1019,7 +1019,6 @@ null_lmm_ML <- lmer(scale(pd_baseline)~1+
 
 BF_BIC <- exp((BIC(null_lmm_ML) - BIC(lmm_ML))/2)  
 BF_BIC  
-
 
 
 ```
@@ -1242,16 +1241,15 @@ lmm<-lmer(scale(mmn)~EventData+(1|id),df_trial)
 
 
 ###task progression BPS
-BPS_progression<-lmer(scale(pd_baseline)~EventCounter+
+BPS_progression<-lmer(scale(pd_baseline)~stats::poly(EventCounter,3)+
               (1|subjects)+(1|wave),data=df_trial)
-      
       
 model_plot_data_BPS<-as.data.frame(emmeans(BPS_progression,~EventCounter,at=list(EventCounter = seq(1,1400,140))))
     
 g4<-ggplot(model_plot_data_BPS,aes(x=EventCounter,y=emmean))+
-  geom_crossbar(aes(ymin=emmean-1*SE,ymax=emmean+1*SE),alpha=0.8,position='dodge',fill='grey15')+
+  geom_crossbar(aes(ymin=emmean-1*SE,ymax=emmean+1*SE),alpha=0.8,position='dodge',fill='grey35')+
   geom_errorbar(aes(ymin=asymp.LCL,ymax=asymp.UCL),position='dodge')+
-  coord_cartesian(ylim = c(-0.125,0.2))+
+  coord_cartesian(ylim = c(-0.2,0.25))+
   labs(x='task progression (trial)',y='baseline pupil size (BPS, z)')
 
 ###task progression SEPR
@@ -1262,9 +1260,9 @@ SEPR_progression<-lmer(scale(rpd_auc)~EventCounter+
 model_plot_data_SEPR<-as.data.frame(emmeans(SEPR_progression,~EventCounter,at=list(EventCounter = seq(1,1400,140))))
     
 g5<-ggplot(model_plot_data_SEPR,aes(x=EventCounter,y=emmean))+
-  geom_crossbar(aes(ymin=emmean-1*SE,ymax=emmean+1*SE),alpha=0.8,position='dodge',fill='grey15')+
+  geom_crossbar(aes(ymin=emmean-1*SE,ymax=emmean+1*SE),alpha=0.8,position='dodge',fill='grey35')+
   geom_errorbar(aes(ymin=asymp.LCL,ymax=asymp.UCL),position='dodge')+
-  coord_cartesian(ylim = c(-0.125,0.2))+
+  coord_cartesian(ylim = c(-0.2,0.25))+
   labs(x='task progression (trial)',y='pupillary response (SEPR, z)')
 
 ###task progression MMN
@@ -1274,9 +1272,9 @@ MMN_progression<-lmer(scale(mmn)~EventCounter+
 model_plot_data_MMN<-as.data.frame(emmeans(MMN_progression,~EventCounter,at=list(EventCounter = seq(1,1400,140))))
     
 g6<-ggplot(model_plot_data_MMN,aes(x=EventCounter,y=emmean))+
-  geom_crossbar(aes(ymin=emmean-1*SE,ymax=emmean+1*SE),alpha=0.8,position='dodge',fill='grey15')+
+  geom_crossbar(aes(ymin=emmean-1*SE,ymax=emmean+1*SE),alpha=0.8,position='dodge',fill='grey35')+
   geom_errorbar(aes(ymin=asymp.LCL,ymax=asymp.UCL),position='dodge')+
-  coord_cartesian(ylim = c(-0.125,0.2))+
+  coord_cartesian(ylim = c(-0.2,0.25))+
   labs(x='task progression (trial)',y='mismatch negativity (MMN, z)')
 
 #extract legend
@@ -1328,7 +1326,7 @@ dev.off() #close operation and save file
 ```{r BPS task progression between groups - LMM}
 
 #main model
-lmm_REML<-lmer(scale(pd_baseline)~EventData*t1_diagnosis*EventCounter+
+lmm_REML<-lmer(scale(pd_baseline)~EventData*t1_diagnosis*stats::poly(EventCounter,3)+
               (1|subjects)+(1|wave),data=df_trial)
 
 #fixed effect significances
@@ -1338,72 +1336,41 @@ anova(lmm_REML)
 r2_nakagawa(lmm_REML)
 
 #POST-HOC
+contrast(emmeans(lmm_REML,~EventData|t1_diagnosis),'pairwise')
+##--> lower BPS in ASD for length versus standards
 
 #Post-hoc - between group
 emtrends(lmm_REML,~t1_diagnosis,var='EventCounter')
-#magnitude of change relative to SE
-emmeans(lmm_REML,~t1_diagnosis+EventCounter,at=list(EventCounter = seq(1,1400,1399)))
 
-  confint(contrast(emmeans(lmm_REML,~EventCounter|t1_diagnosis,at=list(EventCounter =   seq(1,1400,1399))),'revpairwise'))
+#emmeans(lmm_REML,~t1_diagnosis|EventCounter,at=list(EventCounter = seq(1,1400,1399)))
+emmeans(lmm_REML,~t1_diagnosis|EventCounter,at=list(EventCounter = seq(1,1400,699)))
 
 
-#Post-hoc - between condition
-emtrends(lmm_REML,~EventData,var='EventCounter')
+  confint(contrast(emmeans(lmm_REML,~EventCounter|t1_diagnosis,at=list(EventCounter =   seq(1,1400,699))),'revpairwise'))
+
 
 #Bayes factor - group x task progression
-lmm_ML<-lmer(scale(pd_baseline)~EventData*t1_diagnosis*EventCounter+
+lmm_ML<-lmer(scale(pd_baseline)~EventData*t1_diagnosis*stats::poly(EventCounter,3)+
               (1|subjects)+(1|wave),data=df_trial,REML=F)
 
-null_lmm_ML <- lmer(scale(pd_baseline)~EventData+t1_diagnosis+EventCounter+
+null_lmm_ML <- lmer(scale(pd_baseline)~EventData+t1_diagnosis+stats::poly(EventCounter,3)+
                    EventData:EventCounter+EventData:t1_diagnosis+
               (1|subjects)+(1|wave),data=df_trial,REML=F)
 
 BF_BIC <- exp((BIC(null_lmm_ML) - BIC(lmm_ML))/2)  # BICs to Bayes factor
 BF_BIC
 
-#Bayes factor - trial condition x task progression
-null_lmm_ML <- lmer(scale(pd_baseline)~EventData+t1_diagnosis+EventCounter+
-                   EventData:t1_diagnosis+t1_diagnosis:EventCounter+
-              (1|subjects)+(1|wave),data=df_trial,REML=F)
+### compare full model for influence of covariates
 
-        BF_BIC <- exp((BIC(null_lmm_ML) - BIC(lmm_ML))/2)  # BICs to Bayes factor
-        BF_BIC
-        
-        
-#full model        
+#full model
 lmm_full<-lmer(scale(pd_baseline)~EventData*t1_diagnosis*EventCounter+
-      scale(ageyrs)+scale(t1_piq)+sex+
-      as.factor(sampling_rate)+scale(center_dev)+scale(missing_data_trial)+
-      (1|subjects)+(1|wave),data=df_trial)
+               scale(ageyrs)+scale(t1_piq)+sex+
+               scale(center_dev)+as.factor(sampling_rate)+scale(missing_data_trial)+
+              (1|subjects)+(1|wave),data=df_trial)
+              #--> group effect (interaction) is robust in reduced and full model
 
 anova(lmm_full)
 
-#coefficient of determination
-r2_nakagawa(lmm_full)
-
-
-##supplements - full table
-  row_names<-c('trial condition (TC)','group','task progression (TP)',
-               'age','perceptual IQ','sex',
-               'sampling rate','gaze center deviation','data quality',
-               'TC x group','TC x TP','group x TP','TC x group x TP')
-  
-  
-  table_data_model<-round(anova(lmm_full),3)
-  table_data_model<-cbind(row_names,table_data_model)
-  
-  table_data_model
-  
-  table_model<-table_data_model %>%
-    kbl(caption = "Linear mixed model: baseline pupil size (BPS)",
-        col.names = c('','Sum Sq','Mean Sq','df1','df2','F','p'),
-        row.names = F) %>%
-    kable_classic(full_width = F, html_font = "Cambria")
-  
-  
-  table_model
-  
-  save_kable(table_model, file= 'output/supplements/table_model_BPS.html')
   
 ```
 
@@ -1836,14 +1803,23 @@ summary(lm(scale(gain_pcdm)~sex,df_timepoint[df_timepoint$Rsq_pcdm>0.2,]))
 # summary(lm(scale(gain_pcdm)~rpd_auc.204,df_timepoint[df_timepoint$Rsq_pcdm>0.2,]))
 # summary(lm(scale(gain_pcdm)~pd_baseline,df_timepoint[df_timepoint$Rsq_pcdm>0.2,]))
 
+#not altered by covariates
+lmm_full<-lm(scale(gain_pcdm)~t1_diagnosis+
+               scale(ageyrs)+scale(t1_piq)+sex+
+               scale(center_dev)+as.factor(sampling_rate)+scale(missing_data_trial)
+               ,df_timepoint[df_timepoint$Rsq_pcdm>0.2,])
+
+anova(lmm_full) #higher gain in ASD for standards
+
+
 
 ```
 
 ## figure group differences
 
-```{r figure_BPS_SEP_between_groups}
+```{r figure_BPS_SEP_MMN_between_groups}
 #main models
-BPS_progression<-lmer(scale(pd_baseline)~EventData*t1_diagnosis*EventCounter+
+BPS_progression<-lmer(scale(pd_baseline)~EventData*t1_diagnosis*stats::poly(EventCounter,3)+
               (1|subjects)+(1|wave),data=df_trial)
 
 BPS_habituation<-lmer(scale(pd_baseline)~t1_diagnosis*sequence_position+
@@ -1951,49 +1927,96 @@ dev.off() #close operation and save file
 
 ## linearity of effect of trial number
 
-```{r trial_number_modelcomparison BPS}
+```{r linearity SEPR}
 
 ###polynomial fit of trial counter
-  linear_fit<-lmer(scale(pd_baseline)~EventData*t1_diagnosis*scale(EventCounter)+
+  linear_fit<-lmer(scale(rpd_auc)~scale(EventCounter)+
           (1|subjects)+(1|wave),data=df_trial,REML=F)
 
-  quadratic_fit<-lmer(scale(pd_baseline)~EventData*t1_diagnosis*poly(scale(EventCounter),2)+
+  quadratic_fit<-lmer(scale(rpd_auc)~stats::poly(scale(EventCounter),2)+
               (1|subjects)+(1|wave),data=df_trial,REML=F)
 
-  cubic_fit<-lmer(scale(pd_baseline)~EventData*t1_diagnosis*poly(scale(EventCounter),3)+
+  cubic_fit<-lmer(scale(rpd_auc)~stats::poly(scale(EventCounter),3)+
                (1|subjects)+(1|wave),data=df_trial,REML=F)
   
-  quartic_fit<-lmer(scale(pd_baseline)~EventData*t1_diagnosis*poly(scale(EventCounter),4)+
-               (1|subjects)+(1|wave),data=df_trial,REML=F)
-
-  quintic_fit<-lmer(scale(pd_baseline)~EventData*t1_diagnosis*poly(scale(EventCounter),5)+
-               (1|subjects)+(1|wave),data=df_trial,REML=F)
-
-  sextic_fit<-lmer(scale(pd_baseline)~EventData*t1_diagnosis*poly(scale(EventCounter),6)+
-               (1|subjects)+(1|wave),data=df_trial,REML=F)
-
-  septic_fit<-lmer(scale(pd_baseline)~EventData*t1_diagnosis*poly(scale(EventCounter),7)+
-               (1|subjects)+(1|wave),data=df_trial,REML=F)
-
-  anova(linear_fit,quadratic_fit,cubic_fit,quartic_fit,quintic_fit,sextic_fit,septic_fit)
+  anova(linear_fit,quadratic_fit,cubic_fit)
   
   table_model_compare<-anova(linear_fit,quadratic_fit,cubic_fit)
   
-  table_model_compare<-cbind(c('linear fit','quadratic fit','cubic fit','qaurtic fit','quintic fit'),table_model_compare)
+  table_model_compare<-cbind(c('linear fit','quadratic fit','cubic fit'),table_model_compare)
   
   table_formatted<-table_model_compare %>%
-  kbl(caption = "Model comparison on the linearity of trial number on stimulus-evoked pupillary response",
+  kbl(caption = "Model comparison on the linearity of trial number on stimulus-evoked pupillary response (SEPR)",
       col.names = c('','number of parameters','AIC','BIC','log likelihood','deviance','Chi-squared','df','p-value'),
       row.names = F) %>%
   kable_classic(full_width = F, html_font = "Cambria")
 
 table_formatted
 
-save_kable(table_formatted, file=paste0(project_path,'/output/supplements/table_modelcomparison_linearity_trialnumber_onBPS.html'))
+save_kable(table_formatted, file=paste0(project_path,'/output/supplements/table_modelcomparison_linearity_SEPR.html'))
   
   
 ```
 
+```{r linearity BPS}
+
+###polynomial fit of trial counter
+  linear_fit<-lmer(scale(pd_baseline)~scale(EventCounter)+
+          (1|subjects)+(1|wave),data=df_trial,REML=F)
+
+  quadratic_fit<-lmer(scale(pd_baseline)~stats::poly(scale(EventCounter),2)+
+              (1|subjects)+(1|wave),data=df_trial,REML=F)
+
+  cubic_fit<-lmer(scale(pd_baseline)~stats::poly(scale(EventCounter),3)+
+               (1|subjects)+(1|wave),data=df_trial,REML=F)
+  
+  anova(linear_fit,quadratic_fit,cubic_fit)
+  
+  table_model_compare<-anova(linear_fit,quadratic_fit,cubic_fit)
+  
+  table_model_compare<-cbind(c('linear fit','quadratic fit','cubic fit'),table_model_compare)
+  
+  table_formatted<-table_model_compare %>%
+  kbl(caption = "Model comparison on the linearity of trial number on baseline pupil size (BPS)",
+      col.names = c('','number of parameters','AIC','BIC','log likelihood','deviance','Chi-squared','df','p-value'),
+      row.names = F) %>%
+  kable_classic(full_width = F, html_font = "Cambria")
+
+table_formatted
+
+save_kable(table_formatted, file=paste0(project_path,'/output/supplements/table_modelcomparison_linearity_BPS.html'))
+
+```
+
+```{r linearity MMN}
+
+###polynomial fit of trial counter
+  linear_fit<-lmer(scale(mmn)~scale(EventCounter)+
+          (1|subjects)+(1|wave),data=df_trial,REML=F)
+
+  quadratic_fit<-lmer(scale(mmn)~stats::poly(scale(EventCounter),2)+
+              (1|subjects)+(1|wave),data=df_trial,REML=F)
+
+  cubic_fit<-lmer(scale(mmn)~stats::poly(scale(EventCounter),3)+
+               (1|subjects)+(1|wave),data=df_trial,REML=F)
+  
+  anova(linear_fit,quadratic_fit,cubic_fit)
+  
+  table_model_compare<-anova(linear_fit,quadratic_fit,cubic_fit)
+  
+  table_model_compare<-cbind(c('linear fit','quadratic fit','cubic fit'),table_model_compare)
+  
+  table_formatted<-table_model_compare %>%
+  kbl(caption = "Model comparison on the linearity of trial number on mismatch negativity (MMN)",
+      col.names = c('','number of parameters','AIC','BIC','log likelihood','deviance','Chi-squared','df','p-value'),
+      row.names = F) %>%
+  kable_classic(full_width = F, html_font = "Cambria")
+
+table_formatted
+
+save_kable(table_formatted, file=paste0(project_path,'/output/supplements/table_modelcomparison_linearity_MMN.html'))
+
+```
 
 ## intraclass correaltion of the dependent variables
 
@@ -2052,6 +2075,152 @@ psych::ICC(gain_waves[,-1])
 
 ```
 
+For participants with both measurement timepoints, we estimated a relative stability of BPS (intraclass correlation, ICC = 0.88 [0.81, 0.93]), while SEPR (ICC = 0.37 [-0.01, 0.60]) and NG (ICC = 0.37 [0.02, 0.59]) were variable across timepoints. EEG data was only available at one timepoint. 
 
 
+
+## full model tables
+
+```{r BPS full model LMM}
+
+#full model  - save to supplements      
+lmm_full<-lmer(scale(pd_baseline)~EventData*t1_diagnosis*stats::poly(EventCounter,3)+
+      scale(ageyrs)+scale(t1_piq)+sex+
+      as.factor(sampling_rate)+scale(center_dev)+scale(missing_data_trial)+
+      (1|subjects)+(1|wave),data=df_trial)
+
+
+##supplements - full table
+  row_names<-c('stimulus (S)','group','task progression (TP)',
+               'age','perceptual IQ','sex',
+               'sampling rate','gaze center deviation','data quality',
+               'S x group','S x TP','group x TP','S x group x TP')
+  
+  
+  table_data_model<-round(anova(lmm_full),3)
+  table_data_model<-cbind(row_names,table_data_model)
+  
+  table_data_model
+  
+  table_model<-table_data_model %>%
+    kbl(caption = "Linear mixed model: baseline pupil size (BPS)",
+        col.names = c('','Sum Sq','Mean Sq','df1','df2','F','p'),
+        row.names = F) %>%
+    kable_classic(full_width = F, html_font = "Cambria")
+  
+  
+  table_model
+  
+  save_kable(table_model, file= paste0(project_path,'/output/supplements/table_model_BPS.html'))
+
+```
+
+```{r SEPR full model LMM}
+
+#full model
+lmm_full<-lmer(scale(rpd_auc)~EventData*t1_diagnosis*EventCounter+
+               scale(ageyrs)+scale(t1_piq)+sex+
+               scale(center_dev)+as.factor(sampling_rate)+scale(missing_data_trial)+
+              (1|subjects)+(1|wave),data=df_trial)
+              #--> group effect (interaction) is robust in reduced and full model
+
+
+##supplements - full table
+  row_names<-c('stimulus (S)','group','task progression (TP)',
+               'age','perceptual IQ','sex',
+               'sampling rate','gaze center deviation','data quality',
+               'S x group','S x TP','group x TP','S x group x TP')
+   
+  
+  table_data_model<-round(anova(lmm_full),3)
+  table_data_model<-cbind(row_names,table_data_model)
+  
+  table_data_model
+  
+  table_model<-table_data_model %>%
+    kbl(caption = "Linear mixed model: stimulus-evoked pupillary response (SEPR)",
+        col.names = c('','Sum Sq','Mean Sq','df1','df2','F','p'),
+        row.names = F) %>%
+    kable_classic(full_width = F, html_font = "Cambria")
+  
+  
+  table_model
+  
+  save_kable(table_model, file= paste0(project_path,'/output/supplements/table_model_SEPR.html'))
+
+
+```
+
+```{r MMN full model LMM}
+
+#full model
+lmm_full<-lmer(scale(mmn)~EventData*t1_diagnosis*EventCounter+
+               scale(ageyrs)+scale(t1_piq)+sex+
+               scale(center_dev)+as.factor(sampling_rate)+scale(missing_data_trial)+
+              (1|subjects)+(1|wave),data=df_trial)
+              #--> group effect (interaction) is robust in reduced and full model
+
+
+##supplements - full table
+  row_names<-c('stimulus (S)','group','task progression (TP)',
+               'age','perceptual IQ','sex',
+               'sampling rate','gaze center deviation','data quality',
+               'S x group','S x TP','group x TP','S x group x TP')
+   
+  
+  table_data_model<-round(anova(lmm_full),3)
+  table_data_model<-cbind(row_names,table_data_model)
+  
+  table_data_model
+  
+  table_model<-table_data_model %>%
+    kbl(caption = "Linear mixed model: mismatch negativity",
+        col.names = c('','Sum Sq','Mean Sq','df1','df2','F','p'),
+        row.names = F) %>%
+    kable_classic(full_width = F, html_font = "Cambria")
+  
+  
+  table_model
+  
+  save_kable(table_model, file= paste0(project_path,'/output/supplements/table_model_MMN.html'))
+
+
+```
+
+```{r NG full model LM}
+
+lmm_full<-lm(scale(gain_pcdm)~t1_diagnosis+
+               scale(ageyrs)+scale(t1_piq)+sex+
+               scale(center_dev)+as.factor(sampling_rate)+scale(missing_data_trial)
+               ,df_timepoint[df_timepoint$Rsq_pcdm>0.2,])
+
+anova(lmm_full) #higher gain in ASD for standards
+
+##supplements - full table
+  row_names<-c('group',
+               'age','perceptual IQ','sex',
+               'gaze center deviation','sampling rate','data quality',
+               'residuals')
+   
+  
+  table_data_model<-round(anova(lmm_full),3)
+  table_data_model<-cbind(row_names,table_data_model)
+  
+  table_data_model
+  
+  table_model<-table_data_model %>%
+    kbl(caption = "Linear model: neural gain",
+        col.names = c('','Df','Sum Sq','Mean Sq','F','p'),
+        row.names = F) %>%
+    kable_classic(full_width = F, html_font = "Cambria")
+  
+  
+  table_model
+  
+  save_kable(table_model, file= paste0(project_path,'/output/supplements/table_model_NG.html'))
+
+
+
+
+```
 
