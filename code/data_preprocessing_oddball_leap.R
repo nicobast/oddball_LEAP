@@ -2523,3 +2523,8 @@ draws <- mcmc(m, n_samples = 1000)
 
 summary(draws)
 
+
+draws <- mcmc(m, n_samples = number_of_iterations, warmup = number_of_warmups) ###--> test
+
+
+
