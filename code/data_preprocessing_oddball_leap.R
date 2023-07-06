@@ -2120,8 +2120,8 @@ df_trial<-merge(df_trial,df_timepoint_merge,by='id')
   #age
   g1<-ggplot(df_trial[df_trial$ageyrs>=10 & df_trial$ageyrs<=25,],aes(x=ageyrs,y=scale(rpd_auc),group=interaction(EventData,t1_diagnosis),color=t1_diagnosis,fill=t1_diagnosis))+
     geom_smooth(method='lm')+facet_grid(~EventData,labeller=labeller(EventData = labels))+
-    scale_color_manual(name = "group", labels = c("autistic", "neurotypical"),values = brewer.pal(3, "Dark2")[1:2])+
-    scale_fill_manual(name = "group", labels = c("autistic", "neurotypical"),values = brewer.pal(3, "Dark2")[1:2])+
+    scale_color_manual(name = "group", labels = c("autistic", "non-autistic"),values = brewer.pal(3, "Dark2")[1:2])+
+    scale_fill_manual(name = "group", labels = c("autistic", "non-autistic"),values = brewer.pal(3, "Dark2")[1:2])+
     labs(x='age (years)',y='pupillary response (z)')+
     coord_cartesian(ylim = c(-0.05, 0.15))+
     theme_bw()
@@ -2129,8 +2129,8 @@ df_trial<-merge(df_trial,df_timepoint_merge,by='id')
   #IQ
   g2<-ggplot(df_trial[df_trial$t1_piq > 80 & df_trial$t1_piq < 135,],aes(x=t1_piq,y=scale(rpd_auc),group=interaction(EventData,t1_diagnosis),color=t1_diagnosis,fill=t1_diagnosis))+
     geom_smooth(method='lm')+facet_grid(~EventData,labeller=labeller(EventData = labels))+
-    scale_color_manual(name = "group", labels = c("autistic", "neurotypical"),values = brewer.pal(3, "Dark2")[1:2])+
-    scale_fill_manual(name = "group", labels = c("autistic", "neurotypical"),values = brewer.pal(3, "Dark2")[1:2])+
+    scale_color_manual(name = "group", labels = c("autistic", "non-autistic"),values = brewer.pal(3, "Dark2")[1:2])+
+    scale_fill_manual(name = "group", labels = c("autistic", "non-autistic"),values = brewer.pal(3, "Dark2")[1:2])+
     labs(x='perceptual IQ',y='pupillary response (z)')+
     coord_cartesian(ylim = c(-0.05, 0.15))+
     theme_bw()
@@ -2149,7 +2149,7 @@ df_trial<-merge(df_trial,df_timepoint_merge,by='id')
   g3<-ggplot(df_trial,aes(x=interaction(t1_diagnosis,sex),y=scale(rpd_auc),group=interaction(EventData,t1_diagnosis,sex),color=t1_diagnosis))+
     stat_sum_df("mean_cl_normal", geom = "errorbar")+
     stat_sum_single("mean")+
-    scale_color_manual(name = "group", labels = c("autistic", "neurotypical"),values = brewer.pal(3, "Dark2")[1:2])+
+    scale_color_manual(name = "group", labels = c("autistic", "non-autistic"),values = brewer.pal(3, "Dark2")[1:2])+
     facet_grid(~EventData,labeller=labeller(EventData = labels))+
     scale_x_discrete(labels=group_labels)+
     labs(x='biological sex',y='pupillary response (z)')+
@@ -2168,16 +2168,16 @@ df_trial<-merge(df_trial,df_timepoint_merge,by='id')
   #age
   g1<-ggplot(df_trial[df_trial$ageyrs>=10 & df_trial$ageyrs<=25,],aes(x=ageyrs,y=pd_baseline,group=interaction(EventData,t1_diagnosis),color=t1_diagnosis,fill=t1_diagnosis))+
     geom_smooth(method='lm')+facet_grid(~EventData,labeller=labeller(EventData = labels))+
-    scale_color_manual(name = "group", labels = c("autistic", "neurotypical"),values = brewer.pal(3, "Dark2")[1:2])+
-    scale_fill_manual(name = "group", labels = c("autistic", "neurotypical"),values = brewer.pal(3, "Dark2")[1:2])+
+    scale_color_manual(name = "group", labels = c("autistic", "non-autistic"),values = brewer.pal(3, "Dark2")[1:2])+
+    scale_fill_manual(name = "group", labels = c("autistic", "non-autistic"),values = brewer.pal(3, "Dark2")[1:2])+
     labs(x='age (years)',y='baseline pupil size (mm)')+
     theme_bw()
 
   #IQ
   g2<-ggplot(df_trial[df_trial$t1_piq > 80 & df_trial$t1_piq < 135,],aes(x=t1_piq,y=pd_baseline,group=interaction(EventData,t1_diagnosis),color=t1_diagnosis,fill=t1_diagnosis))+
     geom_smooth(method='lm')+facet_grid(~EventData,labeller=labeller(EventData = labels))+
-    scale_color_manual(name = "group", labels = c("autistic", "neurotypical"),values = brewer.pal(3, "Dark2")[1:2])+
-    scale_fill_manual(name = "group", labels = c("autistic", "neurotypical"),values = brewer.pal(3, "Dark2")[1:2])+
+    scale_color_manual(name = "group", labels = c("autistic", "non-autistic"),values = brewer.pal(3, "Dark2")[1:2])+
+    scale_fill_manual(name = "group", labels = c("autistic", "non-autistic"),values = brewer.pal(3, "Dark2")[1:2])+
     labs(x='perceptual IQ',y='baseline pupil size (mm)')+
     theme_bw()
 
@@ -2195,7 +2195,7 @@ df_trial<-merge(df_trial,df_timepoint_merge,by='id')
   g3<-ggplot(df_trial,aes(x=interaction(t1_diagnosis,sex),y=pd_baseline,group=interaction(EventData,t1_diagnosis,sex),color=t1_diagnosis))+
     stat_sum_df("mean_cl_normal", geom = "errorbar")+
     stat_sum_single("mean")+
-    scale_color_manual(name = "group", labels = c("autistic", "neurotypical"),values = brewer.pal(3, "Dark2")[1:2])+
+    scale_color_manual(name = "group", labels = c("autistic", "non-autistic"),values = brewer.pal(3, "Dark2")[1:2])+
     facet_grid(~EventData,labeller=labeller(EventData = labels))+
     scale_x_discrete(labels=group_labels)+
     labs(x='biological sex',y='baseline pupil size (mm)')+
@@ -2206,6 +2206,55 @@ df_trial<-merge(df_trial,df_timepoint_merge,by='id')
 
       with(df_dem,by(t1_piq,interaction(t1_sex,t1_diagnosis),summary))
       with(df_dem,by(t1_ageyrs,interaction(t1_sex,t1_diagnosis),summary))
+
+  ###SCALING of MMN WITH MAIN DEMOGRAPHIC VARIABLES ####
+
+  hist(df_trial$t1_ageyrs) ## pick 10 - 25 years
+  hist(df_trial$t1_piq) ### IQ 80-135
+
+  labels <- c("201" = "standard", "202" = "oddball pitch", "203" = "oddball length", "204" = "oddball both")
+  #age
+  g1<-ggplot(df_trial[df_trial$ageyrs>=10 & df_trial$ageyrs<=25,],aes(x=ageyrs,y=mmn,group=interaction(EventData,t1_diagnosis),color=t1_diagnosis,fill=t1_diagnosis))+
+    geom_smooth(method='lm')+facet_grid(~EventData,labeller=labeller(EventData = labels))+
+    scale_color_manual(name = "group", labels = c("autistic", "non-autistic"),values = brewer.pal(3, "Dark2")[1:2])+
+    scale_fill_manual(name = "group", labels = c("autistic", "non-autistic"),values = brewer.pal(3, "Dark2")[1:2])+
+    labs(x='age (years)',y='mismatch negativity (uV)')+
+    theme_bw()
+
+  #IQ
+  g2<-ggplot(df_trial[df_trial$t1_piq > 80 & df_trial$t1_piq < 135,],aes(x=t1_piq,y=mmn,group=interaction(EventData,t1_diagnosis),color=t1_diagnosis,fill=t1_diagnosis))+
+    geom_smooth(method='lm')+facet_grid(~EventData,labeller=labeller(EventData = labels))+
+    scale_color_manual(name = "group", labels = c("autistic", "non-autistic"),values = brewer.pal(3, "Dark2")[1:2])+
+    scale_fill_manual(name = "group", labels = c("autistic", "non-autistic"),values = brewer.pal(3, "Dark2")[1:2])+
+    labs(x='perceptual IQ',y='mismatch negativity (uV)')+
+    theme_bw()
+
+
+  #summary functions
+  stat_sum_df <- function(fun, geom="crossbar", ...) {
+    stat_summary(fun.data=fun, geom=geom, width=0.2, ...)
+  }
+
+  stat_sum_single <- function(fun, geom="point", ...) {
+    stat_summary(fun=fun, geom=geom, size = 3, ...)
+  }
+
+  group_labels<-c("female","female","male","male")
+  g3<-ggplot(df_trial,aes(x=interaction(t1_diagnosis,sex),y=mmn,group=interaction(EventData,t1_diagnosis,sex),color=t1_diagnosis))+
+    stat_sum_df("mean_cl_normal", geom = "errorbar")+
+    stat_sum_single("mean")+
+    scale_color_manual(name = "group", labels = c("autistic", "non-autistic"),values = brewer.pal(3, "Dark2")[1:2])+
+    facet_grid(~EventData,labeller=labeller(EventData = labels))+
+    scale_x_discrete(labels=group_labels)+
+    labs(x='biological sex',y='mismatch negativity (uV)')+
+    theme_bw()
+
+  grid.arrange(g1,g2,g3,nrow=3)
+  ####--> higher IQ and lower age in autistic females?
+
+  with(df_dem,by(t1_piq,interaction(t1_sex,t1_diagnosis),summary))
+  with(df_dem,by(t1_ageyrs,interaction(t1_sex,t1_diagnosis),summary))
+
 
 
 # -- full VISUALIZATION (df - rpd change)####
