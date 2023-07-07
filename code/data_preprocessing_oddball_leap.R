@@ -2257,6 +2257,8 @@ df_trial<-merge(df_trial,df_timepoint_merge,by='id')
 
 
 
+
+
 # -- full VISUALIZATION (df - rpd change)####
 df_dem_merge<-df_dem[,c('subjects','t1_group','t1_diagnosis','t1_sex','t1_ageyrs','t2_ageyrs','t1_fsiq','t1_piq','t1_viq')]
 df_dem_merge$subjects<-as.character(df_dem_merge$subjects)
