@@ -2257,6 +2257,21 @@ df_trial<-merge(df_trial,df_timepoint_merge,by='id')
 
 
 
+### MODERATION analysis of BPS
+
+  #moderation of BPS on SEPR interaction with group
+  lmm_REML_BPS<-lmer(scale(rpd_auc)~EventData*t1_diagnosis*EventCounter+scale(pd_baseline)+
+                   (1|subjects)+(1|wave),data=df_trial)
+
+  anova(lmm_REML_BPS)
+
+
+  #moderation of BPS on MMN interaction with group
+  lmm_REML_BPS<-lmer(scale(mmn)~EventData*t1_diagnosis*EventCounter+scale(pd_baseline)+
+                       (1|subjects)+(1|wave),data=df_trial)
+
+  anova(lmm_REML_BPS)
+
 
 
 # -- full VISUALIZATION (df - rpd change)####

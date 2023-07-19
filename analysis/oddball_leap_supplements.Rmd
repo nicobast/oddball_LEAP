@@ -1,0 +1,179 @@
+---
+title: "supplementary information"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE)
+
+require(htmltools)
+require(knitr)
+
+project_path<-getwd()
+
+```
+
+# table of content
+
+abbreviations: baseline pupil size (BPS), stimulus-evoked pupillary response (SEPR), mismatch negativity (MMN), neural gain (NG)
+
+-   [supplement 1 - descriptive statistics per participant][supplement 1]
+-   [supplement 2 - descriptive statistics per trial][supplement 2]
+-   [supplement 3 - group comparisons on per-participant estimates][supplement 3]
+-   [supplement 4 - covariate effects: BPS group difference][supplement 4]
+-   [supplement 5 - covariate effects: NG group difference][supplement 5]
+-   [supplement 6 - BPS association with age, IQ, biological sex][supplement 6]
+-   [supplement 7 - SEPR association with age, IQ, biological sex][supplement 7]
+-   [supplement 8 - MMN association with age, IQ, biological sex][supplement 8]
+-   [supplement 9 - correlation table of BPS, SEPR, MMN, NG][supplement 9]
+-   [supplement 10 - polynomial fit comparison for BPS, SEPR; MMN][supplement 10]
+-   [supplement 11 - BPS linear mixed model][supplement 11]
+-   [supplement 12 - SEPR linear mixed model][supplement 12]
+-   [supplement 13 - MMN linear mixed model][supplement 13]
+-   [supplement 14 - Bayesian posterior estimate MCMC chain convergence][supplement 14]
+
+
+# supplement 1
+
+```{r descriptive statistics per participant}
+
+htmltools::includeHTML("./output/supplements/descriptivestatistics_DV_perparticipant.html")
+
+```
+
+# supplement 2
+
+```{r descriptive statistics per trial}
+
+htmltools::includeHTML("./output/supplements/descriptivestatistics_DV_pertrial.html")
+
+```
+
+# supplement 3 
+
+```{r group comparisons per participant}
+
+htmltools::includeHTML("./output/supplements/table_groupcomparison_perparticipant.html")
+
+```
+
+# supplement 4 
+
+```{r covariate effects BPS}
+
+htmltools::includeHTML("./output/supplements/table_linearmodel_BPS_allcovariates.html")
+
+htmltools::includeHTML("./output/supplements/table_linearmodel_BPS_signcovariates.html")
+
+
+```
+
+# supplement 5 
+
+```{r covariate effects NG}
+
+htmltools::includeHTML("./output/supplements/table_linearmodel_NG_allcovariates.html")
+
+htmltools::includeHTML("./output/supplements/table_linearmodel_NG_signcovariates.html")
+
+
+```
+
+# supplement 6
+
+```{r figure BPS scaling}
+
+grid::grid.raster(tiff::readTIFF("./output/supplements/BPS_scaling_withdemographics_between_groups.tiff") )
+
+```
+
+# supplement 7
+
+```{r figure SEPR scaling}
+
+grid::grid.raster(tiff::readTIFF("./output/supplements/SEPR_scaling_withdemographics_between_groups.tiff") )
+
+```
+
+# supplement 8
+
+```{r figure MMN scaling}
+
+grid::grid.raster(tiff::readTIFF("./output/supplements/MMN_scaling_withdemographics_between_groups.tiff") )
+
+```
+
+# supplement 9 
+
+```{r correlation table}
+
+htmltools::includeHTML("./output/supplements/associations_DV_perparticipant.html")
+
+
+```
+
+# supplement 10 
+
+```{r polynomial fit comparisons}
+
+htmltools::includeHTML("./output/supplements/table_modelcomparison_linearity_BPS.html")
+
+htmltools::includeHTML("./output/supplements/table_modelcomparison_linearity_SEPR.html")
+
+htmltools::includeHTML("./output/supplements/table_modelcomparison_linearity_MMN.html")
+
+```
+
+# supplement 11 
+
+```{r BPS linear mixed models}
+
+htmltools::includeHTML("./output/supplements/table_model_BPS.html")
+
+htmltools::includeHTML("./output/supplements/table_BPS_covariateeffects.html")
+
+```
+
+# supplement 12 
+
+```{r SEPR linear mixed models}
+
+htmltools::includeHTML("./output/supplements/table_model_SEPR.html")
+
+htmltools::includeHTML("./output/supplements/table_SEPR_covariateeffects.html")
+
+```
+
+# supplement 13 
+
+```{r MMN linear mixed models}
+
+htmltools::includeHTML("./output/supplements/table_model_MMN.html")
+
+htmltools::includeHTML("./output/supplements/table_MMN_covariateeffects.html")
+
+```
+
+# supplement 14
+
+```{r Bayesian posterior estimate chain convergence}
+
+grid::grid.raster(tiff::readTIFF("./output/supplements/Bayesian_chains_convergence.tiff") )
+
+```
+
+# supplement 15
+
+```{r histograms per-partiticpant}
+
+grid::grid.raster(tiff::readTIFF("./output/supplements/histograms_dependentvariables_perparticipant.tiff") )
+
+```
+
+# supplement 16
+
+```{r histograms per-trial}
+
+grid::grid.raster(tiff::readTIFF("./output/supplements/histograms_dependentvariables_pertrial.tiff") )
+
+```
+

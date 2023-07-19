@@ -1,5 +1,6 @@
 ---
 title: "data_analysis_oddball_leap_280423"
+author: "Nico Bast"
 output: html_document
 date: "`r Sys.Date()`"
 editor_options: 
@@ -54,7 +55,8 @@ require(car) #Anova function for type 3 SumSq
 
 
 #paths
-project_path<-"C:/Users/nico/PowerFolders/project_oddball_LEAP"
+project_path<-getwd()
+#project_path<-"C:/Users/nico/PowerFolders/project_oddball_LEAP"
 localation_of_EEG_allchannel_data<-"C:/Users/nico/Desktop/leap_oddball_eeg_list_allchannels.rdata"
 
 ##define parameters of posterior sampling in Bayesian modeling
@@ -1351,24 +1353,24 @@ lay <- rbind(c(1,2,3,7),
 
 
 #plot in markdown
-grid.arrange(g4+xlab(''),
-             g5,
-             g6+xlab(''),
-             g1+theme(legend.position="none")+xlab(''),
+grid.arrange(g1+theme(legend.position="none")+xlab(''),
              g2+theme(legend.position="none"),
              g3+theme(legend.position="none")+xlab(''),
+             g4+xlab(''),
+             g5,
+             g6+xlab(''),
              mylegend_contrast,layout_matrix=lay)
 
 #save to file
 tiff(file=paste0(project_path,"/output/figures/task_effects_contrasts_progression.tiff"), # create a file in tiff format in 
   width=8, height=5, units="in", res=300, compression='lzw') #define size and resolution of the resulting figure
 
-grid.arrange(g4+xlab(''),
-             g5,
-             g6+xlab(''),
-             g1+theme(legend.position="none")+xlab(''),
+grid.arrange(g1+theme(legend.position="none")+xlab(''),
              g2+theme(legend.position="none"),
              g3+theme(legend.position="none")+xlab(''),
+             g4+xlab(''),
+             g5,
+             g6+xlab(''),
              mylegend_contrast,layout_matrix=lay)
       
 
@@ -2237,7 +2239,7 @@ plot_data<-mcmc_areas_data(draws_BPS_twoway,prob_outer = credible_interval)
 g1b1<-ggplot(plot_data[plot_data$parameter=="design_coef[1,1]",],aes(x=parameter,y=x,group=parameter,fill=parameter))+
   geom_violin(draw_quantiles = c(0.25,0.5,0.75))+
   scale_x_discrete(labels=c('autistic'))+
-  labs(y='posterior estimate',x='')+
+  labs(y='posterior estimate of trend',x='')+
   theme(legend.position = 'none')+
   scale_fill_manual(name = 'parameter: stimulus',
                     values = custom_group_color[1],
@@ -3234,7 +3236,7 @@ cov_eff_data<-rbind(age_eff,
                     dquality_eff)
 
 cov_eff_table<-cov_eff_data %>%
-    kbl(caption = "Covariate effects on stimulus-evoked pupillary response (SEPR)",
+    kbl(caption = "Covariate effects on mismatch negativity (MMN)",
         col.names = c('covariate','estimate','lower bound (2.5%)','upper bound (97.5%)'),
         row.names = F) %>%
     kable_classic(full_width = F, html_font = "Cambria")
@@ -3543,5 +3545,73 @@ dev.off() #close operation and save file
 
 
 
+```
+
+
+## moderation of BPS on SEPR and MMN interaction by group
+
+```{r moderation by BPS}
+
+#moderation of BPS on SEPR interaction with group
+  lmm_REML_BPS<-lmer(scale(rpd_auc)~EventData*t1_diagnosis*EventCounter+scale(pd_baseline)+
+                   (1|subjects)+(1|wave),data=df_trial)
+
+  anova(lmm_REML_BPS)
+  
+  
+  ##supplements - full table
+  row_names<-c('stimulus (S)','group','task progression (TP)',
+               'BPS',
+               'S x group','S x TP','group x TP','S x group x TP')
+  
+  
+  table_data_model<-round(anova(lmm_REML_BPS),3)
+  table_data_model<-cbind(row_names,table_data_model)
+  
+  table_data_model
+  
+  table_model<-table_data_model %>%
+    kbl(caption = "Linear mixed model: Moderation of group differences in dynamic stimulus-evoked pupillary response (SEPR) group differences by baseline pupil size (BPS)",
+        col.names = c('','Sum Sq','Mean Sq','df1','df2','F','p adjusted'),
+        row.names = F) %>%
+    kable_classic(full_width = F, html_font = "Cambria")
+  
+  
+  table_model
+  
+  save_kable(table_model, file= paste0(project_path,'/output/supplements/table_moderation_SEPR_by_BPS.html'))
+
+
+  #moderation of BPS on MMN interaction with group
+  lmm_REML_BPS<-lmer(scale(mmn)~EventData*t1_diagnosis*EventCounter+scale(pd_baseline)+
+                       (1|subjects)+(1|wave),data=df_trial)
+
+  anova(lmm_REML_BPS)
+
+  ##supplements - full table
+  row_names<-c('stimulus (S)','group','task progression (TP)',
+               'BPS',
+               'S x group','S x TP','group x TP','S x group x TP')
+  
+  
+  table_data_model<-round(anova(lmm_REML_BPS),3)
+  table_data_model<-cbind(row_names,table_data_model)
+  
+  table_data_model
+  
+  table_model<-table_data_model %>%
+    kbl(caption = "Linear mixed model: Moderation of group differences in dynamic mismatch negativity (MMN) by baseline pupil size (BPS)",
+        col.names = c('','Sum Sq','Mean Sq','df1','df2','F','p adjusted'),
+        row.names = F) %>%
+    kable_classic(full_width = F, html_font = "Cambria")
+  
+  
+  table_model
+  
+  save_kable(table_model, file= paste0(project_path,'/output/supplements/table_moderation_MMN_by_BPS.html'))
+
+
+  
+  
 ```
 
