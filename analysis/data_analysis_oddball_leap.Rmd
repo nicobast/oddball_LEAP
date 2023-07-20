@@ -1503,14 +1503,16 @@ ci(draws_BPS_twoway,ci=credible_interval)
 
   #model fit
   anova(lmm)
-  r2_nakagawa(lmm)
-
+  
         ### supplementary analysis
         lmm<-lmer(scale(pd_baseline)~t1_diagnosis*sequence_position_z+
                     (1|subjects)+(1|wave),data=df_trial[df_trial$EventData==201 & df_trial$sequence_position<10,])
 
         #model fit
         anova(lmm)
+        
+        r2_nakagawa(lmm)
+
 
 
         #BIC Bayes Factor
@@ -1679,7 +1681,11 @@ ci(draws_SEPR_threeway,ci=credible_interval)
   lmm<-lmer(scale(rpd_auc)~EventData*t1_diagnosis*sequence_position_z+
               (1|subjects)+(1|wave),data=df_trial[df_trial$sequence_position<10,])
 
+  #fixed effect significance
   anova(lmm)
+  
+  #model fit
+  r2_nakagawa(lmm)
   
         ##with covariates
         lmm_full<-lmer(scale(rpd_auc)~EventData*t1_diagnosis*sequence_position_z+
@@ -1879,6 +1885,117 @@ save(draws_MMN_threeway,file=paste0(project_path,'/data/Bayesian_model_MMN_three
 table(interaction_variable) #names of coefficients
 point_estimate(draws_MMN_threeway)
 ci(draws_MMN_threeway,ci=credible_interval)
+
+
+```
+
+```{r MMN habituation LMM}
+
+#MMN - continuous habituation
+lmm_REML<-lmer(scale(mmn)~EventData*t1_diagnosis*sequence_position_z+
+            (1|id),data=df_trial[df_trial$sequence_position<10,])
+
+anova(lmm_REML)
+
+#coefficient of determination
+r2_nakagawa(lmm_REML)
+
+
+#Bayes factor - group x sequence position
+lmm_ML<-lmer(scale(mmn)~EventData*t1_diagnosis*sequence_position_z+
+                (1|id),data=df_trial,REML=F)
+
+null_lmm_ML <- lmer(scale(mmn)~EventData+EventCounter+
+                 EventData:EventCounter+EventData:t1_diagnosis:EventCounter+
+                (1|id),data=df_trial,REML=F)
+
+  BF_BIC <- exp((BIC(null_lmm_ML) - BIC(lmm_ML))/2)  # BICs to Bayes factor
+  BF_BIC
+
+
+  
+#full model
+lmm_full<-lmer(scale(mmn)~EventData*t1_diagnosis*sequence_position_z+
+               scale(ageyrs)+scale(t1_piq)+sex+
+               scale(center_dev)+as.factor(sampling_rate)+scale(missing_data_trial)+
+              (1|id),data=df_trial[df_trial$sequence_position<10,])
+              
+
+
+anova(lmm_full)
+
+confint(contrast(emmeans(lmm_REML,~EventData|t1_diagnosis),'pairwise'))
+
+
+
+
+#MMN - categorical habituation
+lmm_REML<-lmer(scale(mmn)~EventData*t1_diagnosis*as.factor(sequence_position)+
+            (1|id),data=df_trial[df_trial$sequence_position<4,])
+
+anova(lmm_REML)
+  
+
+
+```
+
+```{r MMN habituation - Bayesian}
+
+#remove NA
+df_mmn_bayesian_habituation<-df_trial[!is.na(df_trial$mmn) & df_trial$sequence_position<10,]
+
+# A. translate data - make greta arrays
+y <- as_data(scale(df_mmn_bayesian_habituation$mmn))
+subject_id <- as.integer(factor(df_mmn_bayesian_habituation$subjects)) #random intercept (in LMM)
+events <- as_data(model.matrix(~ EventData - 1, df_trial)) #alternative to dummy coding?
+interaction_variable<-with(df_mmn_bayesian_habituation,interaction(t1_diagnosis,EventData))
+group_by_events <- as_data(model.matrix(~interaction_variable-1, df_mmn_bayesian_habituation)) #alternative to dummy coding - remove intercept (-1)
+#table(group_by_events[,1],group_by_events[,9])
+
+#define priors
+event_coefs<- normal(0, 1, dim=ncol(events))
+group_event_coefs <- normal(0,1, dim=ncol(group_by_events))
+
+sd <- cauchy(0, 3, truncation = c(0, Inf))
+a_subject <- normal(0, 1, dim = max(subject_id))
+
+#OPERATIONS - MODEL
+mean <- group_by_events %*% group_event_coefs + a_subject[subject_id]
+
+# likelihood - distribution over data
+distribution(y) <- normal(mean, sd)
+
+# defining the model
+#m <- model(int, coef_201, coef_202, coef_203, coef_204, sd)
+m <- model(group_event_coefs)
+
+# sampling
+start <-Sys.time()
+draws <- mcmc(m, n_samples = number_of_iterations, warmup = number_of_warmups) ###--> test
+Sys.time() - start
+
+# #estimator convergence
+# mcmc_trace(draws) #see whether chains converge and are stationary
+# mcmc_dens(draws) # + stable estimates
+# 
+# ##results
+# mcmc_areas(draws, prob= .66, prob_outer = .89)+scale_y_discrete(labels=c('ASD-standard','TD-standard ','ASD-pitch','TD-pitch','ASD-length ','TD-length','ASD-pitch+length','TD-pitch+length'))+coord_flip()+theme_bw()
+# 
+# #analyse
+# summary(draws)
+# 
+# #posterior predictive checking
+# coda::gelman.diag(draws) #Rhat <= 1.01 is cutoff for reliable estimator
+# coda::effectiveSize(draws) #ESS - the higher the better
+
+#save model
+draws_MMN_habituation<-draws
+save(draws_MMN_habituation,file=paste0(project_path,'/data/Bayesian_model_MMN_habituation_continuous.Rdata'))
+
+#posterior estimate
+table(interaction_variable) #names of coefficients
+point_estimate(draws_MMN_habituation)
+ci(draws_MMN_habituation,ci=credible_interval)
 
 
 ```
@@ -3010,7 +3127,7 @@ lmm_full<-lmer(scale(pd_baseline)~EventData*t1_diagnosis*stats::poly(EventCounte
   table_data_model
   
   table_model<-table_data_model %>%
-    kbl(caption = "Linear mixed model: baseline pupil size (BPS)",
+    kbl(caption = "Linear mixed model: baseline pupil size (BPS) - task progression",
         col.names = c('','Sum Sq','Mean Sq','df1','df2','F','p adjusted'),
         row.names = F) %>%
     kable_classic(full_width = F, html_font = "Cambria")
@@ -3019,6 +3136,46 @@ lmm_full<-lmer(scale(pd_baseline)~EventData*t1_diagnosis*stats::poly(EventCounte
   table_model
   
   save_kable(table_model, file= paste0(project_path,'/output/supplements/table_model_BPS.html'))
+
+```
+
+```{r BPS full model LMM - habituation}
+
+#recoding
+df_trial$sequence_position_z<-scale(df_trial$sequence_position)
+
+
+  ### supplementary analysis
+lmm_full<-lmer(scale(pd_baseline)~t1_diagnosis*sequence_position_z+
+            scale(ageyrs)+scale(t1_piq)+sex+
+            as.factor(sampling_rate)+scale(center_dev)+scale(missing_data_trial)+
+            (1|subjects)+(1|wave),data=df_trial[df_trial$EventData==201 & df_trial$sequence_position<10,])
+
+anova(lmm_full)
+
+##supplements - full table
+  row_names<-c('group','sequence position - continuous (SP)',
+               'age','perceptual IQ','sex',
+               'sampling rate','gaze center deviation','data quality',
+               'group x SP')
+  
+  
+  table_data_model<-round(anova(lmm_full),3)
+  table_data_model<-cbind(row_names,table_data_model)
+  
+  table_data_model
+  
+  table_model<-table_data_model %>%
+    kbl(caption = "Linear mixed model: baseline pupil size (BPS) - habituation",
+        col.names = c('','Sum Sq','Mean Sq','df1','df2','F','p adjusted'),
+        row.names = F) %>%
+    kable_classic(full_width = F, html_font = "Cambria")
+  
+  
+  table_model
+  
+  save_kable(table_model, file= paste0(project_path,'/output/supplements/table_model_BPS_habituation.html'))
+
 
 ```
 
@@ -3045,7 +3202,7 @@ lmm_full<-lmer(scale(rpd_auc)~EventData*t1_diagnosis*EventCounter+
   table_data_model
   
   table_model<-table_data_model %>%
-    kbl(caption = "Linear mixed model: stimulus-evoked pupillary response (SEPR)",
+    kbl(caption = "Linear mixed model: stimulus-evoked pupillary response (SEPR) - task progression",
         col.names = c('','Sum Sq','Mean Sq','df1','df2','F','p adjusted'),
         row.names = F) %>%
     kable_classic(full_width = F, html_font = "Cambria")
@@ -3054,6 +3211,43 @@ lmm_full<-lmer(scale(rpd_auc)~EventData*t1_diagnosis*EventCounter+
   table_model
   
   save_kable(table_model, file= paste0(project_path,'/output/supplements/table_model_SEPR.html'))
+
+
+```
+
+```{r SEPR full model LMM - habituation}
+
+#SEPR - categorical habituation
+  lmm_full<-lmer(scale(rpd_auc)~EventData*t1_diagnosis*as.factor(sequence_position)+
+            scale(ageyrs)+scale(t1_piq)+sex+
+             scale(center_dev)+as.factor(sampling_rate)+scale(missing_data_trial)+
+              (1|subjects)+(1|wave),data=df_trial[df_trial$sequence_position<4,])
+
+   anova(lmm_full)
+  
+##supplements - full table
+  row_names<-c('stimulus (S)','group','sequence position - categorical (SP)',
+               'age','perceptual IQ','sex',
+               'sampling rate','gaze center deviation','data quality',
+               'S x group','S x SP','group x SP','S x group x SP')
+   
+  
+  table_data_model<-round(anova(lmm_full),3)
+  table_data_model<-cbind(row_names,table_data_model)
+  
+  table_data_model
+  
+  table_model<-table_data_model %>%
+    kbl(caption = "Linear mixed model: stimulus-evoked pupillary response (SEPR) - habituation",
+        col.names = c('','Sum Sq','Mean Sq','df1','df2','F','p adjusted'),
+        row.names = F) %>%
+    kable_classic(full_width = F, html_font = "Cambria")
+  
+  
+  table_model
+  
+  save_kable(table_model, file= paste0(project_path,'/output/supplements/table_model_SEPR_habituation.html'))
+
 
 
 ```
@@ -3081,7 +3275,7 @@ lmm_full<-lmer(scale(mmn)~EventData*t1_diagnosis*EventCounter+
   table_data_model
   
   table_model<-table_data_model %>%
-    kbl(caption = "Linear mixed model: mismatch negativity",
+    kbl(caption = "Linear mixed model: mismatch negativity - task progression",
         col.names = c('','Sum Sq','Mean Sq','df1','df2','F','p adjusted'),
         row.names = F) %>%
     kable_classic(full_width = F, html_font = "Cambria")
@@ -3090,6 +3284,42 @@ lmm_full<-lmer(scale(mmn)~EventData*t1_diagnosis*EventCounter+
   table_model
   
   save_kable(table_model, file= paste0(project_path,'/output/supplements/table_model_MMN.html'))
+
+
+```
+
+```{r MMN full model LMM - habituation}
+
+#full model
+lmm_full<-lmer(scale(mmn)~EventData*t1_diagnosis*sequence_position_z+
+               scale(ageyrs)+scale(t1_piq)+sex+
+               scale(center_dev)+as.factor(sampling_rate)+scale(missing_data_trial)+
+              (1|id),data=df_trial)
+              #--> group effect (interaction) is robust in reduced and full model
+
+
+##supplements - full table
+  row_names<-c('stimulus (S)','group','sequence position - continuous (SP)',
+               'age','perceptual IQ','sex',
+               'sampling rate','gaze center deviation','data quality',
+               'S x group','S x SP','group x SP','S x group x SP')
+   
+  
+  table_data_model<-round(anova(lmm_full),3)
+  table_data_model<-cbind(row_names,table_data_model)
+  
+  table_data_model
+  
+  table_model<-table_data_model %>%
+    kbl(caption = "Linear mixed model: mismatch negativity - habituation",
+        col.names = c('','Sum Sq','Mean Sq','df1','df2','F','p adjusted'),
+        row.names = F) %>%
+    kable_classic(full_width = F, html_font = "Cambria")
+  
+  
+  table_model
+  
+  save_kable(table_model, file= paste0(project_path,'/output/supplements/table_model_MMN_habituation.html'))
 
 
 ```

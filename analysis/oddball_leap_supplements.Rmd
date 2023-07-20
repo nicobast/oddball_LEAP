@@ -7,6 +7,7 @@ knitr::opts_chunk$set(echo = FALSE)
 
 require(htmltools)
 require(knitr)
+require(tiff)
 
 project_path<-getwd()
 
@@ -26,10 +27,15 @@ abbreviations: baseline pupil size (BPS), stimulus-evoked pupillary response (SE
 -   [supplement 8 - MMN association with age, IQ, biological sex][supplement 8]
 -   [supplement 9 - correlation table of BPS, SEPR, MMN, NG][supplement 9]
 -   [supplement 10 - polynomial fit comparison for BPS, SEPR; MMN][supplement 10]
--   [supplement 11 - BPS linear mixed model][supplement 11]
--   [supplement 12 - SEPR linear mixed model][supplement 12]
--   [supplement 13 - MMN linear mixed model][supplement 13]
--   [supplement 14 - Bayesian posterior estimate MCMC chain convergence][supplement 14]
+-   [supplement 11 - BPS linear mixed model - task progression][supplement 11]
+-   [supplement 12 - BPS linear mixed model - habituation][supplement 12]
+-   [supplement 13 - SEPR linear mixed model - task progression][supplement 13]
+-   [supplement 14 - SEPR linear mixed model - habituation][supplement 14]
+-   [supplement 15 - MMN linear mixed model - task progression][supplement 15]
+-   [supplement 16 - MMN linear mixed model - task progression][supplement 16]
+-   [supplement 17 - Bayesian posterior estimate MCMC chain convergence][supplement 17]
+-   [supplement 18 - histograms of per-participant estimates][supplement 18]
+-   [supplement 19 - histograms of per-trial estimates][supplement 19]
 
 
 # supplement 1
@@ -125,7 +131,7 @@ htmltools::includeHTML("./output/supplements/table_modelcomparison_linearity_MMN
 
 # supplement 11 
 
-```{r BPS linear mixed models}
+```{r BPS linear mixed models - task progression}
 
 htmltools::includeHTML("./output/supplements/table_model_BPS.html")
 
@@ -135,7 +141,15 @@ htmltools::includeHTML("./output/supplements/table_BPS_covariateeffects.html")
 
 # supplement 12 
 
-```{r SEPR linear mixed models}
+```{r BPS linear mixed models - habituation}
+
+htmltools::includeHTML("./output/supplements/table_model_BPS_habituation.html")
+
+```
+
+# supplement 13 
+
+```{r SEPR linear mixed models - task progression}
 
 htmltools::includeHTML("./output/supplements/table_model_SEPR.html")
 
@@ -143,9 +157,17 @@ htmltools::includeHTML("./output/supplements/table_SEPR_covariateeffects.html")
 
 ```
 
-# supplement 13 
+# supplement 14 
 
-```{r MMN linear mixed models}
+```{r SEPR linear mixed models - habituation}
+
+htmltools::includeHTML("./output/supplements/table_model_SEPR_habituation.html")
+
+```
+
+# supplement 15 
+
+```{r MMN linear mixed models - task progression}
 
 htmltools::includeHTML("./output/supplements/table_model_MMN.html")
 
@@ -153,15 +175,24 @@ htmltools::includeHTML("./output/supplements/table_MMN_covariateeffects.html")
 
 ```
 
-# supplement 14
+# supplement 16 
 
-```{r Bayesian posterior estimate chain convergence}
 
-grid::grid.raster(tiff::readTIFF("./output/supplements/Bayesian_chains_convergence.tiff") )
+```{r MMN linear mixed models - habituation}
+
+htmltools::includeHTML("./output/supplements/table_model_MMN_habituation.html")
 
 ```
 
-# supplement 15
+# supplement 17
+
+```{r Bayesian posterior estimate chain convergence,as.is=TRUE}
+
+grid::grid.raster(tiff::readTIFF("./output/supplements/Bayesian_chains_convergence.tiff"))
+
+```
+
+# supplement 18
 
 ```{r histograms per-partiticpant}
 
@@ -169,11 +200,12 @@ grid::grid.raster(tiff::readTIFF("./output/supplements/histograms_dependentvaria
 
 ```
 
-# supplement 16
+# supplement 19
 
 ```{r histograms per-trial}
 
 grid::grid.raster(tiff::readTIFF("./output/supplements/histograms_dependentvariables_pertrial.tiff") )
+
 
 ```
 
