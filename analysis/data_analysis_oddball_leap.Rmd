@@ -66,7 +66,7 @@ credible_interval<-0.89 #credible interval Bayesian estimates
 
 
 ##define percentage of data sampling for visualization
-fraction_to_sample<-1 ###relevant for scalp topography
+fraction_to_sample<-100 ###relevant for scalp topography
 sampling_factor<-1/fraction_to_sample ### releavnt for MMN, pupil size change figures
 
 ###graphic settings
@@ -162,7 +162,7 @@ fun_estimate_mmn<-function(one_set){
   #testing
   #one_set<-list_eeg[[100]]
 
-  ###restrict to timeframe - 35-350ms
+  ###restrict to timeframe - 50-350ms
   one_set<-one_set[one_set$times>50 & one_set$times<350,]
 
   mmn_trial<-with(one_set,by(Fz,trial_counter,function(channel_data){
@@ -196,6 +196,7 @@ df_mmn<-data.table::rbindlist(list_mmn)
 df_mmn$trial_counter<-as.numeric(df_mmn$trial_counter)
 df_mmn$condition<-as.factor(df_mmn$condition)
 
+    
 ```
 
 # merge eye-tracking and EEG data
@@ -752,13 +753,13 @@ g_legend<-function(x){
 mylegend<-g_legend(gf_4a)
 
 #plot in markdown
-# grid.arrange(
-#   arrangeGrob(
-#     gf_4a + theme(legend.position="none"),
-#     gf_4b + theme(legend.position="none"),
-#     gf_4c + theme(legend.position="none"),
-#     gf_4d + theme(legend.position="none"),nrow=2),
-#   mylegend, ncol=2, widths=c(5,1))
+grid.arrange(
+  arrangeGrob(
+    gf_4a + theme(legend.position="none"),
+    gf_4b + theme(legend.position="none"),
+    gf_4c + theme(legend.position="none"),
+    gf_4d + theme(legend.position="none"),nrow=2),
+  mylegend, ncol=2, widths=c(5,1))
 
 
 ```
@@ -779,10 +780,12 @@ subsample<-sample(1:nrow(df_eeg),nrow(df_eeg)/sampling_factor) # select 10% of d
 
 custom_condition_colors <- rev(wes_palette('FantasticFox1',5,type='discrete')[2:5]) #reverse custom colors to match color coding in other figures
 
-gf_1<-ggplot(df_eeg[subsample,],aes(x=times,y=Fz,group=condition,color=condition,fill=condition))+geom_smooth()+
-  labs(y='electrode Fz - amplitute (uV)',x='trial duration (ms)')+
+gf_1<-ggplot(df_eeg[subsample,],aes(x=times/1000,y=Fz,group=condition,color=condition,fill=condition))+
+  geom_smooth()+
+  labs(y='electrode Fz - amplitute (uV)',x='trial duration (s)')+
   scale_fill_manual(values = custom_condition_colors, labels=c("standard" = "standard", "frequenc" = "pitch oddball", "duration" = "length oddball ", "combined" = "pitch & length oddball"))+
-  scale_color_manual(values = custom_condition_colors, labels=c("standard" = "standard", "frequenc" = "pitch oddball", "duration" = "length oddball ", "combined" = "pitch & length oddball"))
+  scale_color_manual(values = custom_condition_colors, labels=c("standard" = "standard", "frequenc" = "pitch oddball", "duration" = "length oddball ", "combined" = "pitch & length oddball"))+
+  xlim(-0.1,0.6) #allign with eye-tracking epoch for plotting
 
 #gf_1
 
@@ -800,8 +803,9 @@ sampled_df<-df[sample(1:nrow(df),nrow(df)/sampling_factor),]
 gf_2<-ggplot(sampled_df[sampled_df$time_event<0.6,],aes(x=time_event,y=rpd,group=EventData,color=EventData,fill=EventData))+
   geom_smooth(alpha=0.4)+
   labs(x='trial duration (s)',y='pupil size (mm)')+
-  scale_fill_manual(values = custom_condition_colors, labels=c("201" = "standard", "202" = "pitch oddball", "203" = "length oddball ", "204" = "pitch & length oddball"))+
-  scale_color_manual(values = custom_condition_colors, labels=c("201" = "standard", "202" = "pitch oddball", "203" = "length oddball ", "204" = "pitch & length oddball"))
+  scale_fill_manual(values = custom_condition_colors[c(1,3,2,4)], labels=c("201" = "standard", "202" = "pitch oddball", "203" = "length oddball ", "204" = "pitch & length oddball"))+ #[c(1,3,2,4)] = colors like EEG fig
+  scale_color_manual(values = custom_condition_colors[c(1,3,2,4)], labels=c("201" = "standard", "202" = "pitch oddball", "203" = "length oddball ", "204" = "pitch & length oddball"))+
+  xlim(-0.1,0.6) #allign with eeg epoch
 
 
 #add demographics data
@@ -839,7 +843,7 @@ gf_3<-ggplot(sampled_df[sampled_df$time_event<0.60 & !is.na(sampled_df$trial_pos
                               "202" = "pitch oddball",
                               "203" = "length oddball ",
                               "204" = "pitch & length oddball"))+
-  labs(x='trial duration (s)',y='pupil size (mm)',color='task condition',fill='task condition',linetype='group')+
+  labs(x='trial duration (s)',y='pupil size (mm)',color='stimulus',fill='stimulus',linetype='group')+
   theme(strip.text.y = element_blank()) #remove labels on facet axis
 
 
@@ -862,9 +866,8 @@ mylegend_pupil<-g_legend(gf_3)
 ```{r save composite figure to file}
 
 #save to file
-tiff(file=paste0(project_path,"/output/figures/figure_pupil_mmn_withintrial.tiff"), # create a file in tiff format in current working directory
+tiff(file=paste0(project_path,"/output/figures/figure_pupil_mmn_withintrial2.tiff"), # create a file in tiff format in current working directory
      width=12, height=8, units="in", res=300, compression='lzw') #define size and resolution of the resulting figure
-
 
 grid.arrange(
   arrangeGrob(gf_2+theme(legend.position = 'none'),
@@ -903,6 +906,16 @@ anova(lmm)
 emmeans(lmm,~EventData)
 confint(contrast(emmeans(lmm,~EventData),'pairwise'))
 ###--> 201 > 202 + 204; 203 > 202
+
+      ###restricted to trial that are preceded by standards
+      lmm_r<-lmer(scale(pd_baseline)~EventData+
+            (1|subjects)+(1|wave),data=df_trial[df_trial$sequence_position!=1,])
+
+      anova(lmm_r)
+      emmeans(lmm_r,~EventData)
+      confint(contrast(emmeans(lmm_r,~EventData),'pairwise'))
+
+
 
 r2_nakagawa(lmm)  
   
@@ -2533,7 +2546,7 @@ g3<-grid.arrange(g3a+theme(legend.position = 'none'),
 
 g4<-grid.arrange(g4a+theme(legend.position = 'none'),
                  g4b+theme(legend.position = 'none'),
-                 nrow=2,left='mismatch negativity (MMN, z)')
+                 nrow=2,left='mismatch-negativity-associated amplitude (MMN-amp, z)')
 
 lay <- rbind(c(1,1,2,2),
              c(3,3,3,3),
@@ -2858,7 +2871,7 @@ save_kable(descriptive_table_format,file=paste0(project_path,'/output/supplement
 
 ### histograms of dependent variables - per trial
 
-```{r historgram of dependent variables - per participant}
+```{r historgram of dependent variables - per trial}
 
 grid.arrange(
   ggplot(df_trial,aes(x=pd))+geom_histogram(bins=30)+labs(x='',title='BPS (mm)'),
@@ -3040,7 +3053,6 @@ table_formatted
 save_kable(table_formatted, file=paste0(project_path,'/output/supplements/table_modelcomparison_linearity_sequenceposition.html'))
 
 ```
-
 
 ## intraclass correaltion of the dependent variables
 
