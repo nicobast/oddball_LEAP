@@ -22,21 +22,22 @@ abbreviations: baseline pupil size (BPS), stimulus-evoked pupillary response (SE
 -   [supplement 3 - group comparisons on per-participant estimates][supplement 3]
 -   [supplement 4 - covariate effects: BPS group difference][supplement 4]
 -   [supplement 5 - covariate effects: NG group difference][supplement 5]
--   [supplement 6 - BPS association with age, IQ, biological sex][supplement 6]
--   [supplement 7 - SEPR association with age, IQ, biological sex][supplement 7]
--   [supplement 8 - MMN-amp association with age, IQ, biological sex][supplement 8]
--   [supplement 9 - correlation table of BPS, SEPR, MMN-amp, NG][supplement 9]
--   [supplement 10 - polynomial fit comparison for BPS, SEPR; MMN-amp][supplement 10]
--   [supplement 11 - BPS linear mixed model - task progression][supplement 11]
--   [supplement 12 - stimulus habituation of BPS, SEPR, and MMN-amp][supplement 12]
--   [supplement 13 - BPS linear mixed model - habituation][supplement 13]
--   [supplement 14 - SEPR linear mixed model - task progression][supplement 14]
--   [supplement 15 - SEPR linear mixed model - habituation][supplement 15]
--   [supplement 16 - MMN-amp linear mixed model - task progression][supplement 16]
+-   [supplement 6 - effect of medication on group differences][supplement 6]
+-   [supplement 7 - BPS association with age, IQ, biological sex][supplement 7]
+-   [supplement 8 - SEPR association with age, IQ, biological sex][supplement 8]
+-   [supplement 9 - MMN-amp association with age, IQ, biological sex][supplement 9]
+-   [supplement 10 - correlation table of BPS, SEPR, MMN-amp, NG][supplement 10]
+-   [supplement 11 - polynomial fit comparison for BPS, SEPR; MMN-amp][supplement 11]
+-   [supplement 12 - BPS linear mixed model - task progression][supplement 12]
+-   [supplement 13 - stimulus habituation of BPS, SEPR, and MMN-amp][supplement 13]
+-   [supplement 14 - BPS linear mixed model - habituation][supplement 14]
+-   [supplement 15 - SEPR linear mixed model - task progression][supplement 15]
+-   [supplement 16 - SEPR linear mixed model - habituation][supplement 16]
 -   [supplement 17 - MMN-amp linear mixed model - task progression][supplement 17]
--   [supplement 18 - Bayesian posterior estimate MCMC chain convergence][supplement 18]
--   [supplement 19 - histograms of per-participant estimates][supplement 19]
--   [supplement 20 - histograms of per-trial estimates][supplement 20]
+-   [supplement 18 - MMN-amp linear mixed model - task progression][supplement 18]
+-   [supplement 19 - Bayesian posterior estimate MCMC chain convergence][supplement 19]
+-   [supplement 20 - histograms of per-participant estimates][supplement 20]
+-   [supplement 21 - histograms of per-trial estimates][supplement 21]
 
 
 # supplement 1
@@ -87,13 +88,23 @@ htmltools::includeHTML("./output/supplements/table_linearmodel_NG_signcovariates
 
 # supplement 6
 
+Medication differed between groups (ASD: 46.7%, non-ASD: 18.2%, Chi² = 17.95, p < .001). 12 autistic and 2 non-autistic participants received more than one medication. Medication was primarily related to comorbid symptoms in those receiving medication (melatonin: 23%, methlphenidate: 22%, selective serotonin reuptake inhibitor: 15%, antiepileptics: 11%, risperidone: 7%, atomoxetine: 6%, other: 16%). We calculated a variable whether participants received any medication (yes versus no), which was included as a covariate into models that reported group differences.
+
+On a per participant level, the inclusion of medication did not have an effect on baseline pupil size (BPS) or neuronal gain (NG) and did not alter the group differences (BPS: F(1, 319) = 5.19, p = .023; NG: F(1, 120) = 4.90, p = .028).
+
+For the dynamic BPS model, medication had a significant effect on the cubic fit of BPS (F(1, 294641) = 15.52, p < .001) and was described by a higher BPS for medication (0.03 [0.01, 0.04]). However, this covariate effect did not alter the group differences in dynamic BPS (F(3, 298714) = 12.53, p < .001).
+
+For the dynamic SEPR and MMN model, medication did not have a significant effect on SEPR or MMN (F < 1) and did not alter the group difference interactions (SEPR: F(3, 298711) = 3.28, p = .017; MMN: F(3, 45406) = 2.71, p = .043).
+
+# supplement 7
+
 ```{r figure BPS scaling}
 
 grid::grid.raster(tiff::readTIFF("./output/supplements/BPS_scaling_withdemographics_between_groups.tiff") )
 
 ```
 
-# supplement 7
+# supplement 8
 
 ```{r figure SEPR scaling}
 
@@ -101,7 +112,7 @@ grid::grid.raster(tiff::readTIFF("./output/supplements/SEPR_scaling_withdemograp
 
 ```
 
-# supplement 8
+# supplement 9
 
 ```{r figure MMN scaling}
 
@@ -109,7 +120,7 @@ grid::grid.raster(tiff::readTIFF("./output/supplements/MMN_scaling_withdemograph
 
 ```
 
-# supplement 9 
+# supplement 10 
 
 ```{r correlation table}
 
@@ -118,7 +129,7 @@ htmltools::includeHTML("./output/supplements/associations_DV_perparticipant.html
 
 ```
 
-# supplement 10 
+# supplement 11 
 
 ```{r polynomial fit comparisons}
 
@@ -130,7 +141,7 @@ htmltools::includeHTML("./output/supplements/table_modelcomparison_linearity_MMN
 
 ```
 
-# supplement 11 
+# supplement 12 
 
 ```{r BPS linear mixed models - task progression}
 
@@ -140,17 +151,17 @@ htmltools::includeHTML("./output/supplements/table_BPS_covariateeffects.html")
 
 ```
 
-# supplement 12
+# supplement 13
 
 In this supplementary analyses, we investigated stimulus habituation of baseline pupil size (BPS), stimulus-evoked pupillary response (SEPR), and mismatch-negativity-associated amplitude. For this analyses, we exchanged the fixed effect of task progression with sequence position, i.e., trials since last oddball. This was modeled for sequence position as continuous variable (sequence position: 1-10) or as categorical variable (sequence position: 1 vs. 2 vs 3).
 
-BPS did not differ between groups for sequence position as continuous (F(1,246853) = 1.45, p = .229) or categorical variable (F(1,133874) < 1). When limiting the analysis to the frequent standard stimuli (mR² = 0.01, cR² = 0.76, figure 4 – top right), BPS was characterized by an interaction of group x sequence position (F(1,204703) = 3.87, p = .049, BF < 1), which was not moderated by including covariates (F(1,204685) = 3.99, p < .045, supplement 13). Post-hoc analysis showed that the autistic group was associated with a BPS increase for standard stimuli in a sequence (Δβ = 0.01 [0.00, 0.02]) compared to the non-autistic group (Δβ = -0.01 [-0.02, 0.00]). This is supported by Bayesian posterior estimates that showed a BPS increase with standard stimuli sequences (b = 0.20 [0.07, 0.30]) compared to non-autistic individuals (b = 0.00 [0.00, 0.00]).
+BPS did not differ between groups for sequence position as continuous (F(1,246853) = 1.45, p = .229) or categorical variable (F(1,133874) < 1). When limiting the analysis to the frequent standard stimuli (mR² = 0.01, cR² = 0.76, figure 4 – top right), BPS was characterized by an interaction of group x sequence position (F(1,204703) = 3.87, p = .049, BF < 1), which was not moderated by including covariates (F(1,204685) = 3.99, p < .045, supplement 14). Post-hoc analysis showed that the autistic group was associated with a BPS increase for standard stimuli in a sequence (Δβ = 0.01 [0.00, 0.02]) compared to the non-autistic group (Δβ = -0.01 [-0.02, 0.00]). This is supported by Bayesian posterior estimates that showed a BPS increase with standard stimuli sequences (b = 0.20 [0.07, 0.30]) compared to non-autistic individuals (b = 0.00 [0.00, 0.00]).
 
-SEPR did not differ between groups for sequence position as continuous (F(1,246857) = 2.11, p = .146). For sequence position as categorical variable (1 vs. 2 vs. 3, mR² = 0.00, cR² = 0.00), SEPR was characterized by an interaction of group x sequence position (F(2,133893) = 3.43, p = .032, BF < 1), which was not moderated by the inclusion of covariates (F(2,133891) = 3.45, p < .031, supplement 15). Post-hoc analysis showed that this was driven by a lower SEPR to pitch oddballs at sequence position 2 in autistic versus non-autistic individuals (Δβ = -0.10 [-0.18, -0.02]). This was not supported by Bayesian posterior sampling that showed no group differences in posterior estimates.
+SEPR did not differ between groups for sequence position as continuous (F(1,246857) = 2.11, p = .146). For sequence position as categorical variable (1 vs. 2 vs. 3, mR² = 0.00, cR² = 0.00), SEPR was characterized by an interaction of group x sequence position (F(2,133893) = 3.43, p = .032, BF < 1), which was not moderated by the inclusion of covariates (F(2,133891) = 3.45, p < .031, supplement 16). Post-hoc analysis showed that this was driven by a lower SEPR to pitch oddballs at sequence position 2 in autistic versus non-autistic individuals (Δβ = -0.10 [-0.18, -0.02]). This was not supported by Bayesian posterior sampling that showed no group differences in posterior estimates.
 
-MMN-amp differed between groups for sequence position as continuous variable (mR² = 0.01, cR² = 0.13), MMN-amp was characterized by an interaction of group x stimulus (F(3, 37901) = 2.29, p = 0.045, BF < 1), which was not moderated by the inclusion of covariates (F(3, 37906) = 2.67, p = 0.045, supplement 17). Post-hoc analysis showed a higher MMN-amp for oddball versus standard trials in autistic individuals (pitch: Δβ = 0.10 [0.06, 0.15]; length: Δβ = 0.15 [0.10, 0.19]; pitch & length: Δβ = 0.12 [0.07, 0.17]), compared to non-autistic individuals (pitch: Δβ = 0.02 [-0.03, 0.08]; length: Δβ = 0.07 [0.01, 0.13]; pitch & length: Δβ = 0.05 [0.00, 0.11]). This was not supported by Bayesian posterior sampling that showed no group differences in posterior estimates. For sequence position as categorical variable, MMN-amp did not differ between groups (F(3, 19273 = 1.57, p = 0.19).
+MMN-amp differed between groups for sequence position as continuous variable (mR² = 0.01, cR² = 0.13), MMN-amp was characterized by an interaction of group x stimulus (F(3, 37901) = 2.29, p = 0.045, BF < 1), which was not moderated by the inclusion of covariates (F(3, 37906) = 2.67, p = 0.045, supplement 18). Post-hoc analysis showed a higher MMN-amp for oddball versus standard trials in autistic individuals (pitch: Δβ = 0.10 [0.06, 0.15]; length: Δβ = 0.15 [0.10, 0.19]; pitch & length: Δβ = 0.12 [0.07, 0.17]), compared to non-autistic individuals (pitch: Δβ = 0.02 [-0.03, 0.08]; length: Δβ = 0.07 [0.01, 0.13]; pitch & length: Δβ = 0.05 [0.00, 0.11]). This was not supported by Bayesian posterior sampling that showed no group differences in posterior estimates. For sequence position as categorical variable, MMN-amp did not differ between groups (F(3, 19273 = 1.57, p = 0.19).
 
-# supplement 13 
+# supplement 14 
 
 ```{r BPS linear mixed models - habituation}
 
@@ -158,7 +169,7 @@ htmltools::includeHTML("./output/supplements/table_model_BPS_habituation.html")
 
 ```
 
-# supplement 14 
+# supplement 15 
 
 ```{r SEPR linear mixed models - task progression}
 
@@ -168,7 +179,7 @@ htmltools::includeHTML("./output/supplements/table_SEPR_covariateeffects.html")
 
 ```
 
-# supplement 15 
+# supplement 16 
 
 ```{r SEPR linear mixed models - habituation}
 
@@ -176,7 +187,7 @@ htmltools::includeHTML("./output/supplements/table_model_SEPR_habituation.html")
 
 ```
 
-# supplement 16 
+# supplement 17 
 
 ```{r MMN linear mixed models - task progression}
 
@@ -186,7 +197,7 @@ htmltools::includeHTML("./output/supplements/table_MMN_covariateeffects.html")
 
 ```
 
-# supplement 17 
+# supplement 18 
 
 
 ```{r MMN linear mixed models - habituation}
@@ -195,7 +206,7 @@ htmltools::includeHTML("./output/supplements/table_model_MMN_habituation.html")
 
 ```
 
-# supplement 18
+# supplement 19
 
 ```{r Bayesian posterior estimate chain convergence,as.is=TRUE}
 
@@ -203,7 +214,7 @@ grid::grid.raster(tiff::readTIFF("./output/supplements/Bayesian_chains_convergen
 
 ```
 
-# supplement 19
+# supplement 20
 
 ```{r histograms per-partiticpant}
 
@@ -211,7 +222,7 @@ grid::grid.raster(tiff::readTIFF("./output/supplements/histograms_dependentvaria
 
 ```
 
-# supplement 20
+# supplement 21
 
 ```{r histograms per-trial}
 
