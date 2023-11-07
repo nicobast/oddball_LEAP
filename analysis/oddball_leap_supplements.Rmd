@@ -88,11 +88,11 @@ htmltools::includeHTML("./output/supplements/table_linearmodel_NG_signcovariates
 
 # supplement 6
 
-Medication differed between groups (ASD: 46.7%, non-ASD: 18.2%, Chi² = 17.95, p < .001). 12 autistic and 2 non-autistic participants received more than one medication. Medication was primarily related to comorbid symptoms in those receiving medication (melatonin: 23%, methlphenidate: 22%, selective serotonin reuptake inhibitor: 15%, antiepileptics: 11%, risperidone: 7%, atomoxetine: 6%, other: 16%). We calculated a variable whether participants received any medication (yes versus no), which was included as a covariate into models that reported group differences.
+A higher proportion of autistic versus non-autistic individuals received medication  (ASD: 46.7%, non-ASD: 18.2%, Chi² = 17.95, p < .001). 12 autistic and 2 non-autistic participants received more than one medication. Medication was primarily related to comorbid symptoms in those receiving medication (melatonin: 23%, methlphenidate: 22%, selective serotonin reuptake inhibitor: 15%, antiepileptics: 11%, risperidone: 7%, atomoxetine: 6%, other: 16%). We calculated a variable whether participants received any medication (yes versus no), which was included as a covariate into models that reported group differences.
 
 On a per participant level, the inclusion of medication did not have an effect on baseline pupil size (BPS) or neuronal gain (NG) and did not alter the group differences (BPS: F(1, 319) = 5.19, p = .023; NG: F(1, 120) = 4.90, p = .028).
 
-For the dynamic BPS model, medication had a significant effect on the cubic fit of BPS (F(1, 294641) = 15.52, p < .001) and was described by a higher BPS for medication (0.03 [0.01, 0.04]). However, this covariate effect did not alter the group differences in dynamic BPS (F(3, 298714) = 12.53, p < .001).
+For the dynamic BPS model, medication had a significant effect on the cubic fit of BPS (F(1, 294641) = 15.52, p < .001) and was described by a higher mean BPS for medication (0.03 [0.01, 0.04]). However, this covariate effect did not alter the group differences in dynamic BPS (F(3, 298714) = 12.53, p < .001).
 
 For the dynamic SEPR and MMN model, medication did not have a significant effect on SEPR or MMN (F < 1) and did not alter the group difference interactions (SEPR: F(3, 298711) = 3.28, p = .017; MMN: F(3, 45406) = 2.71, p = .043).
 
@@ -153,7 +153,7 @@ htmltools::includeHTML("./output/supplements/table_BPS_covariateeffects.html")
 
 # supplement 13
 
-In this supplementary analyses, we investigated stimulus habituation of baseline pupil size (BPS), stimulus-evoked pupillary response (SEPR), and mismatch-negativity-associated amplitude. For this analyses, we exchanged the fixed effect of task progression with sequence position, i.e., trials since last oddball. This was modeled for sequence position as continuous variable (sequence position: 1-10) or as categorical variable (sequence position: 1 vs. 2 vs 3).
+In this supplementary analyses, we investigated stimulus habituation of baseline pupil size (BPS), stimulus-evoked pupillary response (SEPR), and mismatch-negativity-associated amplitude. For these analyses, we exchanged the fixed effect of task progression with sequence position, i.e., trials since last oddball. This was modeled for sequence position as continuous variable (sequence position: 1-10) or as categorical variable (sequence position: 1 vs. 2 vs. 3).
 
 BPS did not differ between groups for sequence position as continuous (F(1,246853) = 1.45, p = .229) or categorical variable (F(1,133874) < 1). When limiting the analysis to the frequent standard stimuli (mR² = 0.01, cR² = 0.76, figure 4 – top right), BPS was characterized by an interaction of group x sequence position (F(1,204703) = 3.87, p = .049, BF < 1), which was not moderated by including covariates (F(1,204685) = 3.99, p < .045, supplement 14). Post-hoc analysis showed that the autistic group was associated with a BPS increase for standard stimuli in a sequence (Δβ = 0.01 [0.00, 0.02]) compared to the non-autistic group (Δβ = -0.01 [-0.02, 0.00]). This is supported by Bayesian posterior estimates that showed a BPS increase with standard stimuli sequences (b = 0.20 [0.07, 0.30]) compared to non-autistic individuals (b = 0.00 [0.00, 0.00]).
 

@@ -1,5 +1,5 @@
 ---
-title: "data_analysis_oddball_leap_280423"
+title: "data_analysis_oddball_leap_231023"
 author: "Nico Bast"
 output: html_document
 date: "`r Sys.Date()`"
@@ -58,7 +58,9 @@ require(car) #Anova function for type 3 SumSq
 #paths
 project_path<-getwd()
 #project_path<-"C:/Users/nico/PowerFolders/project_oddball_LEAP"
-localation_of_EEG_allchannel_data<-"C:/Users/nico/Desktop/leap_oddball_eeg_list_allchannels.rdata"
+#localation_of_EEG_allchannel_data<-"C:/Users/nico/Desktop/leap_oddball_eeg_list_allchannels.rdata"
+localation_of_EEG_allchannel_data<-"Z:/nico/backup_data/data_AIMS/mismatch_negativity/leap_oddball_eeg_list_allchannels.rdata"
+
 
 ##define parameters of posterior sampling in Bayesian modeling
 number_of_warmups <- 4000
