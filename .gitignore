@@ -17,4 +17,4 @@ docs/site_libs/
 .PowerFolder/
 manuscript/
 output/
-docs/
+docs/*pdf

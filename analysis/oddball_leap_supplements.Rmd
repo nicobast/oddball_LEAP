@@ -1,5 +1,8 @@
 ---
 title: "supplementary information"
+output:
+  html_document:
+    df_print: paged
 ---
 
 ```{r setup, include=FALSE}
@@ -34,7 +37,7 @@ abbreviations: baseline pupil size (BPS), stimulus-evoked pupillary response (SE
 -   [supplement 15 - SEPR linear mixed model - task progression][supplement 15]
 -   [supplement 16 - SEPR linear mixed model - habituation][supplement 16]
 -   [supplement 17 - MMN-amp linear mixed model - task progression][supplement 17]
--   [supplement 18 - MMN-amp linear mixed model - task progression][supplement 18]
+-   [supplement 18 - MMN-amp linear mixed model - habituation][supplement 18]
 -   [supplement 19 - Bayesian posterior estimate MCMC chain convergence][supplement 19]
 -   [supplement 20 - histograms of per-participant estimates][supplement 20]
 -   [supplement 21 - histograms of per-trial estimates][supplement 21]
