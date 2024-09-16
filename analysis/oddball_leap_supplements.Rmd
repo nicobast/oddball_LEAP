@@ -1,8 +1,9 @@
 ---
 title: "supplementary information"
-output:
+output: 
   html_document:
     df_print: paged
+  word_document: default
 ---
 
 ```{r setup, include=FALSE}
@@ -211,25 +212,27 @@ htmltools::includeHTML("./output/supplements/table_model_MMN_habituation.html")
 
 # supplement 19
 
-```{r Bayesian posterior estimate chain convergence,as.is=TRUE}
+```{r Bayesian posterior estimate chain convergence, fig.width = 60, fig.height = 40, out.width="200%"}
 
-grid::grid.raster(tiff::readTIFF("./output/supplements/Bayesian_chains_convergence.tiff"))
+grid::grid.raster(tiff::readTIFF("./output/supplements/Bayesian_chains_convergence.tiff"),
+                   width=60,default.units = 'inch')
+
 
 ```
 
 # supplement 20
 
-```{r histograms per-partiticpant}
+```{r histograms per-partiticpant, fig.width = 10, fig.height = 15}
 
-grid::grid.raster(tiff::readTIFF("./output/supplements/histograms_dependentvariables_perparticipant.tiff") )
+grid::grid.raster(tiff::readTIFF("./output/supplements/histograms_dependentvariables_perparticipant.tiff"), width=10,default.units ='inch')
 
 ```
 
 # supplement 21
 
-```{r histograms per-trial}
+```{r histograms per-trial, fig.width = 10, fig.height = 15}
 
-grid::grid.raster(tiff::readTIFF("./output/supplements/histograms_dependentvariables_pertrial.tiff") )
+grid::grid.raster(tiff::readTIFF("./output/supplements/histograms_dependentvariables_pertrial.tiff"), width=10,default.units ='inch')
 
 
 ```

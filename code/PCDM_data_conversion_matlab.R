@@ -19,25 +19,38 @@
 # %              - predictionWindow: time window beyond trial onset to make a
 # %                prediction within (e.g. 4 sec in a jittered ISI expt)
 
+## packages ####
+
 require(R.matlab)
 require(ggplot2)
+require(data.table) #rbindlist - fast row binding of lists
+
+## load data ####
+
+### --> in trial data ####
+
+ ### load data - eye tracking data after preprocessing (state: March 2023)
+ project_path<-"C:/Users/nico/PowerFolders/project_oddball_LEAP"
+ ## pupil data
+ load(file=paste0(project_path,'/data/mmn_leap_pd_final_dfs_21022023'))
 
     #test data
     test_data<-df[df$id=='628118917744_wave1',] #sampleData2.mat --> works great
-    test_data<-df[df$id=="976537183752_wave1",] #test_dcpm_input2.mat
-    test_data<-df[df$id=="133731063641_wave1",] #test_dcpm_input3.mat
-    test_data<-df[df$id=="251317189021_wave1",]
-    test_data<-df[df$id=="761647460630_wave2",] #test_dcpm_input5.mat --> works great
+    # test_data<-df[df$id=="976537183752_wave1",] #test_dcpm_input2.mat
+    # test_data<-df[df$id=="133731063641_wave1",] #test_dcpm_input3.mat
+    # test_data<-df[df$id=="251317189021_wave1",]
+    # test_data<-df[df$id=="761647460630_wave2",] #test_dcpm_input5.mat --> works great
+    #
+    # test_data<-df[df$id=="112353982965_wave2",] #works
+    # test_data<-df[df$id=="681975486857_wave1",] #fails in second run
 
-    test_data<-df[df$id=="112353982965_wave2",] #works
-    test_data<-df[df$id=="681975486857_wave1",] #fails in second run
 
+    # #examine test data
+    # ggplot(test_data[test_data$EventData=='201',],aes(x=time_event,y=pd))+geom_smooth()
+    # ggplot(test_data[test_data$time_event<0.65 & test_data$EventData=='201',],aes(x=time_event,y=pd))+geom_smooth()
+    # ggplot(test_data[test_data$time_event<0.6,],aes(x=time_event,y=pd,group=EventData,color=EventData))+geom_smooth()
+    # #628118917744_wave1 --> with clean response
 
-    #examine test data
-    ggplot(test_data[test_data$EventData=='201',],aes(x=time_event,y=pd))+geom_smooth()
-    ggplot(test_data[test_data$time_event<0.65 & test_data$EventData=='201',],aes(x=time_event,y=pd))+geom_smooth()
-    ggplot(test_data[test_data$time_event<0.6,],aes(x=time_event,y=pd,group=EventData,color=EventData))+geom_smooth()
-    #628118917744_wave1 --> with clean response
 
 sample_ids<-sample(unique(df_timepoint$id),10) #sample a fraction
 sample_ids<-unique(df_timepoint$id) #sample all
@@ -45,13 +58,98 @@ sample_ids<-unique(df_timepoint$id) #sample all
 split_point<-700 #median(df$EventCounter)
 #participant<-'158575356558_wave1'
 
-#--> LOOP across all particiapnts
+
+
+### --> in epoched data ####
+
+df_list_epoch<-readRDS('C:/Users/nico/Desktop/mmn_leap_epochs_preprocessed_11072024.Rds')
+length(df_list_epoch)
+names(df_list_epoch)
+
+
+### get IDs from preprocessed epoched data after matching
+
+sample_ids<-sample(names(df_list_epoch),10) #sample a fraction
+#sample_ids<-unique(df_epoch$id) #sample all
+
+#--> LOOP across all particiapnts ####
 for(participant in seq(sample_ids)){
 
 #select data of a participant
-test_data<-df[df$id==sample_ids[participant],] #test_dcpm_input5.mat --> works great
-##fix to standard trials
-test_data<-test_data[test_data$EventData=='201',]
+
+  # #in trial data
+  # test_data<-df[df$id==sample_ids[participant],] #test_dcpm_input5.mat --> works great
+
+
+#uses a gamma-shape linear time invariant filter
+  mean_rpd_response<-0.01
+  fun_LTI_filter<-function(x,opt_shape=6.65,opt_rate=7.68,scaling_factor=mean_rpd_response){
+
+    #check whether trial is empty
+    if(!is.null(x)){
+
+
+      length_epoch<-nrow(x) # legnth of epoch
+      onset_events<-which(x$ts_event==1) # onset of events
+
+      # create matrix to fill - matrix of events
+      k<-matrix(0,nrow=length_epoch,ncol=length(onset_events))
+
+      #fill matrix - with LTI filter based on events - each event with LTI filter
+      for(i in 1:length(onset_events)){
+
+        onset_one_event<-onset_events[i]
+        null_sequence<-rep(0,onset_one_event-1)
+        event_sequence<-seq(1,length_epoch-onset_one_event+1)
+        event_sequence<-c(null_sequence,event_sequence)
+        event_sequence_time<-event_sequence*head(x$frequency_rate,1)
+
+        predict_rpd_event<-dgamma(event_sequence_time,
+                                  shape = opt_shape,
+                                  rate = opt_rate)*scaling_factor
+
+        k[,i]<-predict_rpd_event
+
+      }
+
+      #sum of all pulses (for each event)
+      #predict_rpd_event<-rowSums(k)
+      predict_rpd_event<-apply(k,1,max)
+
+
+      ## this was a shortcut before, but cuts the end of pulses
+      # predict_rpd_event<-dgamma(x$time_event,
+      #                          shape = opt_shape,
+      #                          rate = opt_rate)*scaling_factor
+
+
+      #pulse of epoch (related to first event of epoch)
+      predict_rpd_epoch<-dgamma(x$time_epoch,
+                                shape = opt_shape,
+                                rate = opt_rate)*scaling_factor
+
+      x$pd_res<-x$pd-predict_rpd_event+predict_rpd_epoch
+      # x$predict_rpd_event<-predict_rpd_event
+      # x$predict_rpd_epoch<-predict_rpd_epoch
+
+      return(x)
+
+    }
+
+  }
+
+# select one partiicpant in epoch data
+test_data<-df_list_epoch[names(df_list_epoch)==sample_ids[participant]]
+
+#apply LIT filter
+test_data<-lapply(test_data[[1]],fun_LTI_filter)
+
+#bind to data frame
+test_data<-rbindlist(test_data)
+
+#select only standard trials
+#test_data<-test_data[test_data$EventData=='201',]
+test_data<-test_data[test_data$EventData_epoch=='201',]
 
 
 ## convert gaze coord from relative space to degress in visual angle
@@ -59,70 +157,83 @@ test_data<-test_data[test_data$EventData=='201',]
 screen_width<-345 #mm fixed width of presentation screen EU  AIMS LEAP
 screen_height<-259 #mm fixed height of presentation screen EU  AIMS LEAP
 degrees_by_radian<-360/(2*pi) #fixed conversion facor
-screen_dist<-test_data$screen_dist
+#screen_dist<-test_data$screen_dist
+screen_dist<-610
 x_norm <- test_data$gazepos.x-0.5
 y_norm <- test_data$gazepos.y-0.5
 x_dva<-degrees_by_radian*2*atan(x_norm*screen_width/(2*screen_dist))
 y_dva<-degrees_by_radian*2*atan(y_norm*screen_height/(2*screen_dist))
 # a = 2 * arctan(size / (2 * distance))
 
+
 ###convert pupil size to Arbitary units as recorded by Eye-Link
 # % convert pupil size in mm to AREA
 # % see https://doi.org/10.3758/s13428-015-0588-x, Experiment 1 end
 # % AU = pupil_size / (rescaling_in_radians_of_AU * distance_to_screen )
-radians_per_AU<-1.7*10^(-4) #see https://doi.org/10.3758/s13428-015-0588-x, Experiment 1 end
-pd_AU <- with(test_data,pd/(radians_per_AU*screen_dist))
+#radians_per_AU<-1.7*10^(-4) #see https://doi.org/10.3758/s13428-015-0588-x, Experiment 1 end
+#pd_AU <- with(test_data,pd/(radians_per_AU*screen_dist))
+#pd_AU <- with(test_data,pd_res/(radians_per_AU*screen_dist))
+pd_AU <- test_data$pd_res
+
 
 ###recalculations for correct data format
-trial_start<-which(test_data$ts_event==1)
-trial_end<-as.numeric(cumsum(with(test_data,by(ts_event,EventCounter,max))))
-trial_number<-as.numeric(with(test_data,by(EventCounter,EventCounter,unique)))
+trial_start<-which(test_data$ts_epoch==1)
+trial_end<-as.numeric(cumsum(with(test_data,by(ts_epoch,EventCounter_epoch,max))))
+trial_number<-as.numeric(with(test_data,by(EventCounter_epoch,EventCounter_epoch,unique)))
 
-event_types<-as.character(with(test_data,by(EventData,EventCounter,head,n=1)))
+event_types<-as.character(with(test_data,by(EventData_epoch,EventCounter_epoch,head,n=1)))
 event_types<-as.numeric(sapply(event_types,function(x){switch(x,
                                                    "201" = 1,
                                                    "202" = 2,
                                                    "203" = 2,
                                                    "204" = 2)}))
 
-# # SINGLE RUN
-# matlab_input<-list()
-# matlab_input[[1]]<-x_dva #0,0 should be center
-# matlab_input[[2]]<-y_dva  #0,0 should be center
-# matlab_input[[3]]<-pd_AU
-# matlab_input[[4]]<-as.matrix(cbind(trial_start,trial_end))
-# matlab_input[[5]]<-with(test_data,round(1/frequency_rate)[1])
-# matlab_input[[6]]<-event_types
-# names(matlab_input)<-c('xPos','yPos','pupilArea','startInds','sampleRate','trialTypes')
-
+# SINGLE RUN
+matlab_input<-list()
+matlab_input[[1]]<-x_dva #0,0 should be center
+matlab_input[[2]]<-y_dva  #0,0 should be center
+matlab_input[[3]]<-pd_AU
+matlab_input[[4]]<-as.matrix(cbind(trial_start,trial_end))
+matlab_input[[5]]<-with(test_data,round(1/frequency_rate)[1])
+matlab_input[[6]]<-event_types
+names(matlab_input)<-c('xPos','yPos','pupilArea','startInds','sampleRate','trialTypes')
 
 # ###SPOLIT FOR DIFFERENT RUNS
 
+#split_point<-700 #median(df$EventCounter)
+
 # #split into unnested lists as this can be handled by matlab import
-split_runs_samples<-with(test_data,ifelse(EventCounter<split_point,1,2))
-split_runs_trials<-ifelse(trial_number<split_point,1,2)
+# split_runs_samples<-with(test_data,ifelse(EventCounter_epoch<split_point,1,2))
+# split_runs_trials<-ifelse(trial_number<split_point,1,2)
+#
+# matlab_input<-list()
+# matlab_input[1:2]<-split(x_dva,split_runs_samples) #0,0 should be center
+# matlab_input[3:4]<-split(y_dva,split_runs_samples)  #0,0 should be center
+# matlab_input[5:6]<-split(pd_AU,split_runs_samples)
+# matlab_input[7:8]<-split(trial_start,split_runs_trials)
+# matlab_input[9:10]<-split(trial_end,split_runs_trials)
+# matlab_input[11:12]<-list(with(test_data,round(1/frequency_rate)[1]),with(test_data,round(1/frequency_rate)[1]))
+# matlab_input[13:14]<-split(event_types,split_runs_trials)
+# ##reset startinds of run 2 (relative to absolute)
+# first_sample_of_run<-matlab_input[[8]][1]-1
+# matlab_input[[8]]<-matlab_input[[8]]-first_sample_of_run
+# matlab_input[[10]]<-matlab_input[[10]]-first_sample_of_run
+#
+# names(matlab_input)<-c('xPos_1','xPos_2','yPos_1','yPos_2','pupilArea_1','pupilArea_2','startInds_1s','startInds_2s','startInds_1e','startInds_2e','sampleRate_1','sampleRate_2','trialTypes_1','trialTypes_2')
 
-matlab_input<-list()
-matlab_input[1:2]<-split(x_dva,split_runs_samples) #0,0 should be center
-matlab_input[3:4]<-split(y_dva,split_runs_samples)  #0,0 should be center
-matlab_input[5:6]<-split(pd_AU,split_runs_samples)
-matlab_input[7:8]<-split(trial_start,split_runs_trials)
-matlab_input[9:10]<-split(trial_end,split_runs_trials)
-matlab_input[11:12]<-list(with(test_data,round(1/frequency_rate)[1]),with(test_data,round(1/frequency_rate)[1]))
-matlab_input[13:14]<-split(event_types,split_runs_trials)
-##reset startinds of run 2 (relative to absolute)
-first_sample_of_run<-matlab_input[[8]][1]-1
-matlab_input[[8]]<-matlab_input[[8]]-first_sample_of_run
-matlab_input[[10]]<-matlab_input[[10]]-first_sample_of_run
+#matlab_input<-lapply(matlab_input,as.numeric)
 
-names(matlab_input)<-c('xPos_1','xPos_2','yPos_1','yPos_2','pupilArea_1','pupilArea_2','startInds_1s','startInds_2s','startInds_1e','startInds_2e','sampleRate_1','sampleRate_2','trialTypes_1','trialTypes_2')
-matlab_input<-lapply(matlab_input,as.numeric)
-
-#writeMat(paste0('C:/Users/nico/PowerFolders/project_matlab_pcdm/PCDM/input/test_data9.mat'),input=works) #input - is the name how it appears in matlab workspace
 writeMat(paste0('C:/Users/nico/PowerFolders/project_matlab_pcdm/PCDM/input/',sample_ids[participant],'.mat'),input=matlab_input) #input - is the name how it appears in matlab workspace
 print(paste0('saved: ',sample_ids[participant]))
 
 }
+
+
+## READ MATLAB OUTPUT AFTER PCDM FITTING ####
+
+
+mat_output<-readMat("C:/Users/nico/PowerFolders/project_matlab_pcdm/PCDM/input/378195533007_wave2.mat")
+
 
 # #read and analyze matlab output from DCPM ####
 # mat_output<-readMat("C:/Users/nico/PowerFolders/project_matlab_pcdm/PCDM/sample_ouput.mat")

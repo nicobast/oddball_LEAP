@@ -1,0 +1,1349 @@
+<!DOCTYPE html>
+
+<html>
+
+<head>
+
+<meta charset="utf-8" />
+<meta name="generator" content="pandoc" />
+<meta http-equiv="X-UA-Compatible" content="IE=EDGE" />
+
+
+<meta name="author" content="Nico Bast" />
+
+<meta name="date" content="2024-07-10" />
+
+<title>data_preprocessing_oddball_leap</title>
+
+<script src="site_libs/header-attrs-2.18/header-attrs.js"></script>
+<script src="site_libs/jquery-3.6.0/jquery-3.6.0.min.js"></script>
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<link href="site_libs/bootstrap-3.3.5/css/cosmo.min.css" rel="stylesheet" />
+<script src="site_libs/bootstrap-3.3.5/js/bootstrap.min.js"></script>
+<script src="site_libs/bootstrap-3.3.5/shim/html5shiv.min.js"></script>
+<script src="site_libs/bootstrap-3.3.5/shim/respond.min.js"></script>
+<style>h1 {font-size: 34px;}
+       h1.title {font-size: 38px;}
+       h2 {font-size: 30px;}
+       h3 {font-size: 24px;}
+       h4 {font-size: 18px;}
+       h5 {font-size: 16px;}
+       h6 {font-size: 12px;}
+       code {color: inherit; background-color: rgba(0, 0, 0, 0.04);}
+       pre:not([class]) { background-color: white }</style>
+<script src="site_libs/jqueryui-1.11.4/jquery-ui.min.js"></script>
+<link href="site_libs/tocify-1.9.1/jquery.tocify.css" rel="stylesheet" />
+<script src="site_libs/tocify-1.9.1/jquery.tocify.js"></script>
+<script src="site_libs/navigation-1.1/tabsets.js"></script>
+<link href="site_libs/highlightjs-9.12.0/textmate.css" rel="stylesheet" />
+<script src="site_libs/highlightjs-9.12.0/highlight.js"></script>
+
+<link rel="icon" href="https://github.com/workflowr/workflowr-assets/raw/main/img/reproducible.png">
+<!-- Add a small amount of space between sections. -->
+<style type="text/css">
+div.section {
+  padding-top: 12px;
+}
+</style>
+
+
+
+<style type="text/css">
+  code{white-space: pre-wrap;}
+  span.smallcaps{font-variant: small-caps;}
+  span.underline{text-decoration: underline;}
+  div.column{display: inline-block; vertical-align: top; width: 50%;}
+  div.hanging-indent{margin-left: 1.5em; text-indent: -1.5em;}
+  ul.task-list{list-style: none;}
+    </style>
+
+<style type="text/css">code{white-space: pre;}</style>
+<script type="text/javascript">
+if (window.hljs) {
+  hljs.configure({languages: []});
+  hljs.initHighlightingOnLoad();
+  if (document.readyState && document.readyState === "complete") {
+    window.setTimeout(function() { hljs.initHighlighting(); }, 0);
+  }
+}
+</script>
+
+
+
+
+
+
+
+
+
+<style type = "text/css">
+.main-container {
+  max-width: 940px;
+  margin-left: auto;
+  margin-right: auto;
+}
+img {
+  max-width:100%;
+}
+.tabbed-pane {
+  padding-top: 12px;
+}
+.html-widget {
+  margin-bottom: 20px;
+}
+button.code-folding-btn:focus {
+  outline: none;
+}
+summary {
+  display: list-item;
+}
+details > summary > p:only-child {
+  display: inline;
+}
+pre code {
+  padding: 0;
+}
+</style>
+
+
+<style type="text/css">
+.dropdown-submenu {
+  position: relative;
+}
+.dropdown-submenu>.dropdown-menu {
+  top: 0;
+  left: 100%;
+  margin-top: -6px;
+  margin-left: -1px;
+  border-radius: 0 6px 6px 6px;
+}
+.dropdown-submenu:hover>.dropdown-menu {
+  display: block;
+}
+.dropdown-submenu>a:after {
+  display: block;
+  content: " ";
+  float: right;
+  width: 0;
+  height: 0;
+  border-color: transparent;
+  border-style: solid;
+  border-width: 5px 0 5px 5px;
+  border-left-color: #cccccc;
+  margin-top: 5px;
+  margin-right: -10px;
+}
+.dropdown-submenu:hover>a:after {
+  border-left-color: #adb5bd;
+}
+.dropdown-submenu.pull-left {
+  float: none;
+}
+.dropdown-submenu.pull-left>.dropdown-menu {
+  left: -100%;
+  margin-left: 10px;
+  border-radius: 6px 0 6px 6px;
+}
+</style>
+
+<script type="text/javascript">
+// manage active state of menu based on current page
+$(document).ready(function () {
+  // active menu anchor
+  href = window.location.pathname
+  href = href.substr(href.lastIndexOf('/') + 1)
+  if (href === "")
+    href = "index.html";
+  var menuAnchor = $('a[href="' + href + '"]');
+
+  // mark the anchor link active (and if it's in a dropdown, also mark that active)
+  var dropdown = menuAnchor.closest('li.dropdown');
+  if (window.bootstrap) { // Bootstrap 4+
+    menuAnchor.addClass('active');
+    dropdown.find('> .dropdown-toggle').addClass('active');
+  } else { // Bootstrap 3
+    menuAnchor.parent().addClass('active');
+    dropdown.addClass('active');
+  }
+
+  // Navbar adjustments
+  var navHeight = $(".navbar").first().height() + 15;
+  var style = document.createElement('style');
+  var pt = "padding-top: " + navHeight + "px; ";
+  var mt = "margin-top: -" + navHeight + "px; ";
+  var css = "";
+  // offset scroll position for anchor links (for fixed navbar)
+  for (var i = 1; i <= 6; i++) {
+    css += ".section h" + i + "{ " + pt + mt + "}\n";
+  }
+  style.innerHTML = "body {" + pt + "padding-bottom: 40px; }\n" + css;
+  document.head.appendChild(style);
+});
+</script>
+
+<!-- tabsets -->
+
+<style type="text/css">
+.tabset-dropdown > .nav-tabs {
+  display: inline-table;
+  max-height: 500px;
+  min-height: 44px;
+  overflow-y: auto;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+}
+
+.tabset-dropdown > .nav-tabs > li.active:before, .tabset-dropdown > .nav-tabs.nav-tabs-open:before {
+  content: "\e259";
+  font-family: 'Glyphicons Halflings';
+  display: inline-block;
+  padding: 10px;
+  border-right: 1px solid #ddd;
+}
+
+.tabset-dropdown > .nav-tabs.nav-tabs-open > li.active:before {
+  content: "\e258";
+  font-family: 'Glyphicons Halflings';
+  border: none;
+}
+
+.tabset-dropdown > .nav-tabs > li.active {
+  display: block;
+}
+
+.tabset-dropdown > .nav-tabs > li > a,
+.tabset-dropdown > .nav-tabs > li > a:focus,
+.tabset-dropdown > .nav-tabs > li > a:hover {
+  border: none;
+  display: inline-block;
+  border-radius: 4px;
+  background-color: transparent;
+}
+
+.tabset-dropdown > .nav-tabs.nav-tabs-open > li {
+  display: block;
+  float: none;
+}
+
+.tabset-dropdown > .nav-tabs > li {
+  display: none;
+}
+</style>
+
+<!-- code folding -->
+
+
+
+<style type="text/css">
+
+#TOC {
+  margin: 25px 0px 20px 0px;
+}
+@media (max-width: 768px) {
+#TOC {
+  position: relative;
+  width: 100%;
+}
+}
+
+@media print {
+.toc-content {
+  /* see https://github.com/w3c/csswg-drafts/issues/4434 */
+  float: right;
+}
+}
+
+.toc-content {
+  padding-left: 30px;
+  padding-right: 40px;
+}
+
+div.main-container {
+  max-width: 1200px;
+}
+
+div.tocify {
+  width: 20%;
+  max-width: 260px;
+  max-height: 85%;
+}
+
+@media (min-width: 768px) and (max-width: 991px) {
+  div.tocify {
+    width: 25%;
+  }
+}
+
+@media (max-width: 767px) {
+  div.tocify {
+    width: 100%;
+    max-width: none;
+  }
+}
+
+.tocify ul, .tocify li {
+  line-height: 20px;
+}
+
+.tocify-subheader .tocify-item {
+  font-size: 0.90em;
+}
+
+.tocify .list-group-item {
+  border-radius: 0px;
+}
+
+
+</style>
+
+
+
+</head>
+
+<body>
+
+
+<div class="container-fluid main-container">
+
+
+<!-- setup 3col/9col grid for toc_float and main content  -->
+<div class="row">
+<div class="col-xs-12 col-sm-4 col-md-3">
+<div id="TOC" class="tocify">
+</div>
+</div>
+
+<div class="toc-content col-xs-12 col-sm-8 col-md-9">
+
+
+
+
+<div class="navbar navbar-default  navbar-fixed-top" role="navigation">
+  <div class="container">
+    <div class="navbar-header">
+      <button type="button" class="navbar-toggle collapsed" data-toggle="collapse" data-bs-toggle="collapse" data-target="#navbar" data-bs-target="#navbar">
+        <span class="icon-bar"></span>
+        <span class="icon-bar"></span>
+        <span class="icon-bar"></span>
+      </button>
+      <a class="navbar-brand" href="index.html">project_oddball_LEAP</a>
+    </div>
+    <div id="navbar" class="navbar-collapse collapse">
+      <ul class="nav navbar-nav">
+        <li>
+  <a href="index.html">Home</a>
+</li>
+<li>
+  <a href="about.html">About</a>
+</li>
+<li>
+  <a href="license.html">License</a>
+</li>
+      </ul>
+      <ul class="nav navbar-nav navbar-right">
+        
+      </ul>
+    </div><!--/.nav-collapse -->
+  </div><!--/.container -->
+</div><!--/.navbar -->
+
+<div id="header">
+
+
+
+<h1 class="title toc-ignore">data_preprocessing_oddball_leap</h1>
+<h4 class="author">Nico Bast</h4>
+<h4 class="date">2024-07-10</h4>
+
+</div>
+
+
+<p>
+<button type="button" class="btn btn-default btn-workflowr btn-workflowr-report" data-toggle="collapse" data-target="#workflowr-report">
+<span class="glyphicon glyphicon-list" aria-hidden="true"></span>
+workflowr <span class="glyphicon glyphicon-exclamation-sign text-danger"
+aria-hidden="true"></span>
+</button>
+</p>
+<div id="workflowr-report" class="collapse">
+<ul class="nav nav-tabs">
+<li class="active">
+<a data-toggle="tab" href="#summary">Summary</a>
+</li>
+<li>
+<a data-toggle="tab" href="#checks"> Checks <span
+class="glyphicon glyphicon-exclamation-sign text-danger"
+aria-hidden="true"></span> </a>
+</li>
+<li>
+<a data-toggle="tab" href="#versions">Past versions</a>
+</li>
+</ul>
+<div class="tab-content">
+<div id="summary" class="tab-pane fade in active">
+<p>
+<strong>Last updated:</strong> 2024-07-10
+</p>
+<p>
+<strong>Checks:</strong> <span
+class="glyphicon glyphicon-ok text-success" aria-hidden="true"></span> 6
+<span class="glyphicon glyphicon-exclamation-sign text-danger"
+aria-hidden="true"></span> 1
+</p>
+<p>
+<strong>Knit directory:</strong> <code>project_oddball_LEAP/</code>
+<span class="glyphicon glyphicon-question-sign" aria-hidden="true"
+title="This is the local directory in which the code in this file was executed.">
+</span>
+</p>
+<p>
+This reproducible <a href="https://rmarkdown.rstudio.com">R Markdown</a>
+analysis was created with <a
+  href="https://github.com/workflowr/workflowr">workflowr</a> (version
+1.7.0). The <em>Checks</em> tab describes the reproducibility checks
+that were applied when the results were created. The <em>Past
+versions</em> tab lists the development history.
+</p>
+<hr>
+</div>
+<div id="checks" class="tab-pane fade">
+<div id="workflowr-checks" class="panel-group">
+<div class="panel panel-default">
+<div class="panel-heading">
+<p class="panel-title">
+<a data-toggle="collapse" data-parent="#workflowr-checks" href="#strongRMarkdownfilestronguncommittedchanges">
+<span class="glyphicon glyphicon-exclamation-sign text-danger"
+aria-hidden="true"></span> <strong>R Markdown file:</strong> uncommitted
+changes </a>
+</p>
+</div>
+<div id="strongRMarkdownfilestronguncommittedchanges"
+class="panel-collapse collapse">
+<div class="panel-body">
+<p>The R Markdown is untracked by Git. To know which version of the R
+Markdown file created these results, you’ll want to first commit it to
+the Git repo. If you’re still working on the analysis, you can ignore
+this warning. When you’re finished, you can run
+<code>wflow_publish</code> to commit the R Markdown file and build the
+HTML.</p>
+</div>
+</div>
+</div>
+<div class="panel panel-default">
+<div class="panel-heading">
+<p class="panel-title">
+<a data-toggle="collapse" data-parent="#workflowr-checks" href="#strongEnvironmentstrongempty">
+<span class="glyphicon glyphicon-ok text-success"
+aria-hidden="true"></span> <strong>Environment:</strong> empty </a>
+</p>
+</div>
+<div id="strongEnvironmentstrongempty" class="panel-collapse collapse">
+<div class="panel-body">
+<p>Great job! The global environment was empty. Objects defined in the
+global environment can affect the analysis in your R Markdown file in
+unknown ways. For reproduciblity it’s best to always run the code in an
+empty environment.</p>
+</div>
+</div>
+</div>
+<div class="panel panel-default">
+<div class="panel-heading">
+<p class="panel-title">
+<a data-toggle="collapse" data-parent="#workflowr-checks" href="#strongSeedstrongcodesetseed20230119code">
+<span class="glyphicon glyphicon-ok text-success"
+aria-hidden="true"></span> <strong>Seed:</strong>
+<code>set.seed(20230119)</code> </a>
+</p>
+</div>
+<div id="strongSeedstrongcodesetseed20230119code"
+class="panel-collapse collapse">
+<div class="panel-body">
+<p>The command <code>set.seed(20230119)</code> was run prior to running
+the code in the R Markdown file. Setting a seed ensures that any results
+that rely on randomness, e.g. subsampling or permutations, are
+reproducible.</p>
+</div>
+</div>
+</div>
+<div class="panel panel-default">
+<div class="panel-heading">
+<p class="panel-title">
+<a data-toggle="collapse" data-parent="#workflowr-checks" href="#strongSessioninformationstrongrecorded">
+<span class="glyphicon glyphicon-ok text-success"
+aria-hidden="true"></span> <strong>Session information:</strong>
+recorded </a>
+</p>
+</div>
+<div id="strongSessioninformationstrongrecorded"
+class="panel-collapse collapse">
+<div class="panel-body">
+<p>Great job! Recording the operating system, R version, and package
+versions is critical for reproducibility.</p>
+</div>
+</div>
+</div>
+<div class="panel panel-default">
+<div class="panel-heading">
+<p class="panel-title">
+<a data-toggle="collapse" data-parent="#workflowr-checks" href="#strongCachestrongnone">
+<span class="glyphicon glyphicon-ok text-success"
+aria-hidden="true"></span> <strong>Cache:</strong> none </a>
+</p>
+</div>
+<div id="strongCachestrongnone" class="panel-collapse collapse">
+<div class="panel-body">
+<p>Nice! There were no cached chunks for this analysis, so you can be
+confident that you successfully produced the results during this
+run.</p>
+</div>
+</div>
+</div>
+<div class="panel panel-default">
+<div class="panel-heading">
+<p class="panel-title">
+<a data-toggle="collapse" data-parent="#workflowr-checks" href="#strongFilepathsstrongrelative">
+<span class="glyphicon glyphicon-ok text-success"
+aria-hidden="true"></span> <strong>File paths:</strong> relative </a>
+</p>
+</div>
+<div id="strongFilepathsstrongrelative" class="panel-collapse collapse">
+<div class="panel-body">
+<p>Great job! Using relative paths to the files within your workflowr
+project makes it easier to run your code on other machines.</p>
+</div>
+</div>
+</div>
+<div class="panel panel-default">
+<div class="panel-heading">
+<p class="panel-title">
+<a data-toggle="collapse" data-parent="#workflowr-checks" href="#strongRepositoryversionstrongahrefhttpsgithubcomnicobastoddballLEAPtreea1ea9cbbf015d1730947f87ed3adecffd662f051targetblanka1ea9cba">
+<span class="glyphicon glyphicon-ok text-success"
+aria-hidden="true"></span> <strong>Repository version:</strong>
+<a href="https://github.com/nicobast/oddball_LEAP/tree/a1ea9cbbf015d1730947f87ed3adecffd662f051" target="_blank">a1ea9cb</a>
+</a>
+</p>
+</div>
+<div
+id="strongRepositoryversionstrongahrefhttpsgithubcomnicobastoddballLEAPtreea1ea9cbbf015d1730947f87ed3adecffd662f051targetblanka1ea9cba"
+class="panel-collapse collapse">
+<div class="panel-body">
+<p>
+Great! You are using Git for version control. Tracking code development
+and connecting the code version to the results is critical for
+reproducibility.
+</p>
+<p>
+The results in this page were generated with repository version
+<a href="https://github.com/nicobast/oddball_LEAP/tree/a1ea9cbbf015d1730947f87ed3adecffd662f051" target="_blank">a1ea9cb</a>.
+See the <em>Past versions</em> tab to see a history of the changes made
+to the R Markdown and HTML files.
+</p>
+<p>
+Note that you need to be careful to ensure that all relevant files for
+the analysis have been committed to Git prior to generating the results
+(you can use <code>wflow_publish</code> or
+<code>wflow_git_commit</code>). workflowr only checks the R Markdown
+file, but you know if there are other scripts or data files that it
+depends on. Below is the status of the Git repository when the results
+were generated:
+</p>
+<pre><code>
+Ignored files:
+    Ignored:    .PowerFolder/
+    Ignored:    .Rhistory
+    Ignored:    .Rproj.user/
+    Ignored:    desktop.ini
+    Ignored:    manuscript/
+    Ignored:    output/figures/
+    Ignored:    output/supplements/
+
+Untracked files:
+    Untracked:  analysis/data_preprocessing_oddball_leap.Rmd
+
+Unstaged changes:
+    Modified:   analysis/oddball_leap_supplements.Rmd
+
+</code></pre>
+<p>
+Note that any generated files, e.g. HTML, png, CSS, etc., are not
+included in this status report because it is ok for generated content to
+have uncommitted changes.
+</p>
+</div>
+</div>
+</div>
+</div>
+<hr>
+</div>
+<div id="versions" class="tab-pane fade">
+<p>
+There are no past versions. Publish this analysis with
+<code>wflow_publish()</code> to start tracking its development.
+</p>
+<hr>
+</div>
+</div>
+</div>
+<div id="setup" class="section level1">
+<h1>SETUP</h1>
+<ul>
+<li>specify location of data = data_path</li>
+<li>load required packages</li>
+</ul>
+</div>
+<div id="data-info" class="section level1">
+<h1>DATA INFO</h1>
+<p>INFO ON DATA STRUCTURE These are the event codes used for marking up
+the EEG in the MMN task: - STD 201 - DEV_FREQ 202 - DEV_DUR 203 -
+DEV_COMB 204</p>
+<p>In the eye tracking data these become {‘EEG_EVENT’, XXX},
+e.g. {‘EEG_EVENT’, 201} for the standards.</p>
+<p>You can get these from the session_events.csv or from the
+eventBuffer.mat files – the data is the same, so you can pick whatever
+format works best for you.</p>
+<p>Each event has a timestamp. The “RemoteTime” column in the
+session_events.csv matches with the column of the same name in
+session_gaze_data.csv. Likewise in the mat files, you’ll find the
+timestamp in eventBuffer.mat links to that in timeBuffer.mat.</p>
+</div>
+<div id="read-data-and-early-preprocessing" class="section level1">
+<h1>Read data and early preprocessing</h1>
+<ul>
+<li><p>read data and match gaze to events</p></li>
+<li><p>takes 2.5 hours on 64gb on recent Ryzen 5950k</p></li>
+<li><p>saved as file here:
+“Z:_data_AIMS_negativity_leap_merged”</p></li>
+<li><p>early preprocessing on loading</p>
+<ul>
+<li>remove implausible timestamps</li>
+<li>create EventCounter variable</li>
+<li>retreive ID variable</li>
+</ul></li>
+</ul>
+<pre class="r"><code>#empty list to fill with data
+df_list&lt;-list()
+start&lt;-Sys.time()
+
+for(participant in 1:length(individual_event_files)){
+
+  #testing
+  #participant&lt;-sample(1:length(individual_event_files),1)
+
+#read_data
+events&lt;-fread(individual_event_files[participant],sep=&#39;,&#39;,header=T,fill=T,integer64=&#39;numeric&#39;) #large data is converted to numeric
+et_data&lt;-fread(individual_gaze_data_files[participant],sep=&#39;,&#39;,header=T,fill=T)
+print(paste(&#39;read file nr:&#39;,participant))
+
+#remove implausible timestamps
+events&lt;-events[events$RemoteTime&gt;=0,]
+
+#reduce events to relevant task events - only retain oddball data
+  # events&lt;-events[grepl(&#39;SCREENFLASH&#39;,events$Event) |
+  #                  grepl(&#39;BREAK&#39;,events$Event) |
+  #                    (grepl(&#39;EEG_EVENT&#39;,events$Event) &amp; events$EventData %in% c(&#39;201&#39;,&#39;202&#39;,&#39;203&#39;,&#39;204&#39;))]
+events&lt;-events[grepl(&#39;EEG_EVENT&#39;,events$Event) &amp; events$EventData %in% c(&#39;201&#39;,&#39;202&#39;,&#39;203&#39;,&#39;204&#39;)]
+
+#create empty array of event data to fill with loop
+na_array_length_data&lt;-as.numeric(rep(NA,nrow(et_data)))
+eventlog&lt;-data.frame(Event=na_array_length_data,
+                     EventData=na_array_length_data)
+
+#create an event counter
+events$EventCounter&lt;-seq_along(events$Event)
+
+  #matching loop
+  for(row_number in 1:nrow(events)){
+  which_event&lt;-which(et_data[,&#39;RemoteTime&#39;]&gt;=as.numeric(events[row_number,&#39;RemoteTime&#39;]) &amp; et_data[,&#39;RemoteTime&#39;]&lt;as.numeric(events[row_number+1,&#39;RemoteTime&#39;]))
+  eventlog[which_event,&#39;Event&#39;]&lt;-events[row_number,&#39;Event&#39;]
+  eventlog[which_event,&#39;EventData&#39;]&lt;-events[row_number,&#39;EventData&#39;]
+  eventlog[which_event,&#39;EventCounter&#39;]&lt;-events[row_number,&#39;EventCounter&#39;]
+
+  #print(paste(&#39;read:&#39;,row_number))
+  }
+
+#concatenate et data and events
+et_data&lt;-data.frame(et_data,eventlog)
+
+#retrieve id
+length_pic&lt;-12
+id&lt;-substr(individual_event_files[participant],nchar(individual_event_files[participant])-length_pic-nchar(&quot;session_events.csv&quot;),nchar(individual_event_files[participant])-nchar(&quot;session_events.csv&quot;)-nchar(&#39;/&#39;))
+wave&lt;-substr(individual_event_files[participant],nchar(individual_event_files[participant])-length_pic-nchar(&quot;session_events.csv&quot;)-nchar(&#39;waveX&#39;)-nchar(&#39;/&#39;),nchar(individual_event_files[participant])-length_pic-nchar(&quot;session_events.csv&quot;)-nchar(&#39;/&#39;)*2)
+individual_id&lt;-paste(id,wave,sep=&#39;_&#39;)
+
+#write to list
+df_list[[participant]]&lt;-et_data
+names(df_list)[participant]&lt;-individual_id
+print(paste(&#39;processed:&#39;,individual_id))
+
+}
+Sys.time()-start ###--&gt; 2.5 hours
+
+# save(df_list, file=&#39;C:/Users/nico/Desktop/mmn_leap_merged_24012023&#39;) #save temp on NAS
+#save(df_list, file=&#39;C:/Users/nico/Desktop/mmn_leap_merged_03072024&#39;)</code></pre>
+</div>
+<div id="remove-unnecessary-data" class="section level1">
+<h1>remove unnecessary data</h1>
+<ul>
+<li>drops 3D information in raw data</li>
+<li>drops variable Event that always is “EEG_EVENT”</li>
+</ul>
+<pre class="r"><code>## -- drop unecessary data --&gt; subsequent preprocessing requires far less RAM####
+fun_required_necessary_data&lt;-function(x){
+
+  #drop raw eye tracking data
+  x&lt;-x[,!(grepl(&#39;.3D.&#39;,names(x)))]
+  x&lt;-x[,!names(x)==&#39;Event&#39;]
+  x&lt;-x[,!names(x)==&#39;TriggerSignal&#39;]
+  return(x)
+
+}
+
+df_list&lt;-pblapply(df_list,fun_required_necessary_data)</code></pre>
+</div>
+<div id="delete-empty-data-sets" class="section level1">
+<h1>delete empty data sets</h1>
+<ul>
+<li>removes participants without any data</li>
+<li>removes 7 of 350</li>
+</ul>
+<pre class="r"><code>#### remove participatns without MMN data ####
+which(sapply(df_list,nrow)==0)
+df_list&lt;-df_list[sapply(df_list,nrow)!=0]</code></pre>
+</div>
+<div id="create-variables" class="section level1">
+<h1>create variables</h1>
+<div id="create-timestamp-variable" class="section level2">
+<h2>Create timestamp variable</h2>
+<ul>
+<li>ts = time in experiment</li>
+<li>might be redundant for analysis</li>
+</ul>
+<pre class="r"><code>#create long format variable: ts (in seconds format)
+ts&lt;-pblapply(df_list,function(x){x&lt;-x$RemoteTime})
+ts&lt;-pblapply(ts,function(x){abs(head(x,n=1)-x)/1000000})
+
+#add ts and change name of the variable
+df_list&lt;-pbmapply(cbind,df_list,ts,SIMPLIFY = FALSE) #simplify needs to be in capital letters
+df_list&lt;-pblapply(df_list,fun_rename,variable_position=ncol(df_list[[1]]),new_name=&#39;ts&#39;) #rename LAST variabel to ts
+
+rm(ts)</code></pre>
+</div>
+<div id="create-id-variable" class="section level2">
+<h2>create ID variable</h2>
+<pre class="r"><code>id_list&lt;-names(df_list)
+id&lt;-pbmapply(function(x,y){rep(x,nrow(y))},id_list,df_list,SIMPLIFY=FALSE)
+df_list&lt;-pbmapply(cbind,df_list,id,SIMPLIFY = FALSE) #simplify needs to be in capital letters
+df_list&lt;-pblapply(df_list,fun_rename,variable_position=ncol(df_list[[1]]),new_name=&#39;id&#39;) #rename LAST variabel to ts
+
+rm(id)</code></pre>
+</div>
+<div id="create-timestamp-in-trial-variable-ts_trial"
+class="section level2">
+<h2>create timestamp in trial variable (ts_trial)</h2>
+<ul>
+<li>ts_trial refers to timestamps within trials</li>
+<li>this differs between different sampling rates (120Hz and 300Hz)</li>
+<li>takes 3 minutes</li>
+</ul>
+<pre class="r"><code>fun_define_trials&lt;-function(single_participant){
+
+  # #create index for these new trials
+  index_trial&lt;-single_participant[,&#39;EventCounter&#39;]
+
+  #sequence over each new trial
+  split_list&lt;-split(single_participant,f=list(index_trial))
+  ts_event&lt;-lapply(split_list,function(x){seq_along(x$EventCounter)})
+
+  #unlist
+  single_participant&lt;-rbindlist(split_list)
+  ts_event&lt;-unlist(ts_event)
+
+  #add index and sequence data to list
+  single_participant&lt;-data.frame(single_participant,ts_event)
+
+  return(single_participant)
+}
+
+df_list&lt;-pblapply(df_list,fun_define_trials)
+
+saveRDS(df_list, file=&#39;C:/Users/nico/Desktop/mmn_leap_merged_04072024.Rds&#39;, compress=F)</code></pre>
+</div>
+<div id="create-epoched-data-set" class="section level2">
+<h2>create epoched data set</h2>
+<ul>
+<li>epoch number and ts_epoch</li>
+<li>epoch chosen as 8 trials, min. 4 seconds per epoch</li>
+<li>added in July 2024, proceeded with epoched data</li>
+</ul>
+<p>–&gt; now we have two data sets: - df_list - split by trials
+(currently not further preprocessed, commented out) - df_list_epoch -
+split by epochs (also contains trial information)</p>
+<pre class="r"><code>start&lt;-Sys.time()
+
+#define epoch length (here 8 trials, min 4 seconds)
+epoch_length&lt;-8
+
+#single_set&lt;-df_list[[3]]
+
+###function steps
+fun_define_epoch&lt;-function(single_set){
+
+  ## define trial sequence: basically every available trial
+    trial_sequence_start&lt;-seq(1,max(single_set$EventCounter,na.rm=T))
+    
+  ## create list based on trial sequence = epoch, returns epoch_list
+    epoch_list&lt;-list()
+    for (n in trial_sequence_start) {
+      epoch_list[[n]]&lt;-single_set[single_set$EventCounter&gt;=n
+                                  &amp; single_set$EventCounter&lt;n+epoch_length-1,]
+
+      ##debugging:
+      #print(n/max(trial_sequence_start))
+    }
+    
+  
+  ##create variables for epochs  
+  # timestamp for epoch
+  ts_epoch&lt;-lapply(epoch_list,
+                   function(x){seq_along(x$EventCounter)})
+  # Event Counter for epoch
+  EventCounter_epoch&lt;-lapply(epoch_list,
+                             function(x){rep(head(x$EventCounter,1),nrow(x))})
+  # EventData for epoch 
+  EventData_epoch&lt;-lapply(epoch_list,
+                          function(x){rep(head(x$EventData,1),nrow(x))})
+  
+  
+  ##unlist
+  single_participant&lt;-rbindlist(epoch_list)
+  ts_epoch&lt;-unlist(ts_epoch)
+  EventCounter_epoch&lt;-unlist(EventCounter_epoch)
+  EventData_epoch&lt;-unlist(EventData_epoch)
+  
+  ##concatenate
+  single_participant&lt;-data.frame(single_participant,
+                                 ts_epoch,
+                                 EventCounter_epoch,
+                                 EventData_epoch)
+  
+  ##return single participant
+  return(single_participant)
+  
+  }
+
+df_list_epoch&lt;-pblapply(df_list,fun_define_epoch)
+
+rm(epoch_list,epoch_length)
+
+Sys.time()-start ###--&gt; 4 hours
+
+
+  # #testing
+  # 
+  # ggplot(single_participant,aes(x=ts_epoch,y=Left.Diameter,color=EventData_epoch))+
+  #   geom_smooth()+xlim(c(0,1200))
+  # 
+  # table(single_participant$EventData_epoch)
+  # hist(single_participant$EventCounter_epoch)
+  # hist(single_participant$ts_epoch)
+
+saveRDS(df_list_epoch, file = &quot;C:/Users/nico/Desktop/mmn_leap_epoched_04072024.Rds&quot;, compress = F) #uncompressed is way faster to save</code></pre>
+</div>
+<div id="work-in-progress---load-epoched-data" class="section level2">
+<h2>WORK IN PROGRESS - load epoched data</h2>
+<pre class="r"><code>df_list_epoch&lt;-readRDS(&quot;C:/Users/nico/Desktop/mmn_leap_epoched_04072024.Rds&quot;)
+
+##drop trigger Signal variable
+df_list_epoch&lt;-pblapply(df_list_epoch,fun_required_necessary_data)</code></pre>
+</div>
+<div id="work-in-progress---load-trial-data" class="section level2">
+<h2>WORK in Progress - load trial data</h2>
+<pre class="r"><code>df_list&lt;-readRDS(&#39;C:/Users/nico/Desktop/mmn_leap_merged_04072024.Rds&#39;)</code></pre>
+</div>
+<div
+id="estimate-frequency-and-create-time-variable-within-trial-and-epoch"
+class="section level2">
+<h2>estimate frequency and create time variable within trial and
+epoch</h2>
+<pre class="r"><code># in trial split data
+frequency_rate&lt;-pbsapply(df_list,function(x){median(diff(x$ts),na.rm=T)})
+frequency_rate&lt;-ifelse(round(frequency_rate,3)==0.003,0.003333,
+                      ifelse(round(frequency_rate,3)==0.008,0.008333,NA))
+
+fun_define_time_event_trials&lt;-function(x,y){
+
+  frequency_rate_i&lt;-rep(y,nrow(x))
+  x[,&#39;frequency_rate&#39;]&lt;-frequency_rate_i
+  x[,&#39;time_event&#39;]&lt;-(x$ts_event-1)*x$frequency_rate
+  return(x)
+
+}
+
+df_list&lt;-pbmapply(fun_define_time_event_trials,
+                  x=df_list,y=frequency_rate, SIMPLIFY = F)
+rm(frequency_rate)
+
+
+# # in epoched data 
+# frequency_rate&lt;-pbsapply(df_list_epoch,function(x){median(diff(x$ts),na.rm=T)})
+# frequency_rate&lt;-ifelse(round(frequency_rate,3)==0.003,0.003333,
+#                       ifelse(round(frequency_rate,3)==0.008,0.008333,NA))
+# 
+# fun_define_time_event_epoch&lt;-function(x,y){
+# 
+#   frequency_rate_i&lt;-rep(y,nrow(x))
+#   x[,&#39;frequency_rate&#39;]&lt;-frequency_rate_i
+#   x[,&#39;time_event&#39;]&lt;-(x$ts_event-1)*x$frequency_rate
+#   x[,&#39;time_epoch&#39;]&lt;-(x$ts_epoch-1)*x$frequency_rate
+#   return(x)
+# 
+# }
+# 
+# df_list_epoch&lt;-pbmapply(fun_define_time_event_epoch,
+#                         x=df_list_epoch,y=frequency_rate, SIMPLIFY = F)
+
+rm(frequency_rate)</code></pre>
+<pre><code>Warning in rm(frequency_rate): object &#39;frequency_rate&#39; not found</code></pre>
+</div>
+<div id="short-data-summary" class="section level2">
+<h2>short data summary</h2>
+<pre class="r"><code># #testing
+# single_participant&lt;-df_list_epoch[[101]]
+# hist(single_participant$ts_event)
+# hist(single_participant$ts_epoch)
+# hist(single_participant$EventCounter_epoch)
+# table(single_participant$EventData_epoch)
+
+#mean of 30k data points per participant
+hist(sapply(df_list,nrow))
+#most participants have ~1399 trials
+summary(sapply(df_list,function(x){length(unique(x$EventCounter))}))
+#number of measurements - 343 (04.07.2024)
+paste(&#39;date:&#39;,paste(Sys.Date()),&#39;,individual measurements: n=&#39;,length(df_list))
+
+
+#mean of 200k data points per participant
+hist(sapply(df_list_epoch,nrow))
+#most participants have ~1399 trials
+summary(sapply(df_list_epoch,function(x){length(unique(x$EventCounter))}))
+#number of measurements - 343 (04.07.2024)
+paste(&#39;date:&#39;,paste(Sys.Date()),&#39;,individual measurements: n=&#39;,length(df_list_epoch))</code></pre>
+</div>
+</div>
+<div id="gaze-preprocessing" class="section level1">
+<h1>gaze preprocessing</h1>
+<p>-estimate gaze position -estimate center deviation -also drops raw
+gaze position data for left and right eye</p>
+<pre class="r"><code>#-- estimate gaze position + calculate center deviation
+fun_gaze_position&lt;-function(single_participant){
+
+  attach(single_participant)
+  #exclude implausible values
+  xl &lt;- ifelse((Left.x&lt;0|Left.x&gt;1), NA, Left.x)
+  xr &lt;- ifelse((Right.x&lt;0|Right.x&gt;1), NA, Right.x)
+  yl &lt;- ifelse((Left.y&lt;0|Left.y&gt;1), NA, Left.y)
+  yr &lt;- ifelse((Right.y&lt;0|Right.y&gt;1), NA, Right.y)
+  #take offset between left and right into account
+  x.offset&lt;-xl-xr
+  x.offset&lt;-na.approx(x.offset,rule=2)
+  y.offset&lt;-yl-yr
+  y.offset&lt;-na.approx(y.offset,rule=2)
+  #mean gaze across both eyes
+  xl &lt;- ifelse(is.na(xl)==FALSE, xl, xr+x.offset)
+  xr &lt;- ifelse(is.na(xr)==FALSE, xr, xl-x.offset)
+  yl &lt;- ifelse(is.na(yl)==FALSE, yl, yr+y.offset)
+  yr &lt;- ifelse(is.na(yr)==FALSE, yr, yl-y.offset)
+  gazepos.x&lt;-(xl+xr)/2
+  gazepos.y&lt;-(yl+yr)/2
+
+  #remove outside screen
+  gazepos.x&lt;-ifelse(gazepos.x&gt;1 | gazepos.x&lt;0,NA,gazepos.x)
+  gazepos.y&lt;-ifelse(gazepos.y&gt;1 | gazepos.y&lt;0,NA,gazepos.y)
+
+  #estimate center deviation
+  center_deviation&lt;-sqrt((gazepos.x-0.5)^2 + (gazepos.y-0.5)^2)
+
+  single_participant[,&#39;gazepos.x&#39;]&lt;-gazepos.x
+  single_participant[,&#39;gazepos.y&#39;]&lt;-gazepos.y
+  single_participant[,&#39;center_dev&#39;]&lt;-center_deviation
+  
+  single_participant&lt;-single_participant[,!names(single_participant) %in% c(
+    &#39;Left.x&#39;,&#39;Left.y&#39;,&#39;Right.x&#39;,&#39;Right.y&#39;)]
+
+  detach(single_participant)
+  return(single_participant)
+}
+
+df_list&lt;-pblapply(df_list,fun_gaze_position)
+# df_list_epoch&lt;-pblapply(df_list_epoch,fun_gaze_position)</code></pre>
+</div>
+<div id="pupil-preprocessing" class="section level1">
+<h1>pupil preprocessing</h1>
+<ul>
+<li>blink correction with custom script</li>
+<li>pupil data preprocessing according to Kret &amp; Sjak-Shie 2018</li>
+<li>epoched data requires splitting to individual datasets that are
+saved and loaded from disc to preserve RAM (64GB failed with
+rbindfill)</li>
+</ul>
+<pre class="r"><code>#blink correction function
+fun_blink_cor &lt;- function(signal,lower_threshold,upper_threshold,samples_before,samples_after) {
+    #change NA to 999 for rle()-function
+    findna &lt;- ifelse(is.na(signal),999,signal)
+    #find blinks:
+    #output of rle(): how many times values (NA) are repeated
+    repets &lt;- rle(findna)
+    #stretch to length of PD vector for indexing
+    repets &lt;- rep(repets[[&quot;lengths&quot;]], times=repets[[&quot;lengths&quot;]])
+    #difference between two timestamps~3.33ms -&gt; 75/3.333=22.5 -&gt; wenn 23 Reihen PD=NA, dann blink gap
+    #if more than 150ms (45 rows) of NA, missing data due to blink unlikely
+    #dummy coding of variables (1=at least 23 consecutive repetitions, 0=less than 23 repetitions)
+    repets &lt;- ifelse(repets&gt;=lower_threshold &amp; repets&lt;=upper_threshold, 1, 0)
+    #exclude cases where other values than NA (999) are repeated &gt;=23 times by changing dummy value to 0:
+    repets[findna!=999 &amp; repets==1] &lt;- 0
+    #gives out where changes from 0 to 1 (no NA at least 23xNA) or 1 to 0 (23x NA to no NA) appear
+    changes &lt;- c(diff(repets),0)
+    #define start (interval before blink/missing data)
+    changes.start&lt;-which(changes==1) #where NA-sequence starts
+    #gives out row numbers of NA (blink) and previous 8 frames
+    start.seq&lt;-unlist(lapply(changes.start, function(x) {seq(max(x-(samples_before-1),1), x)}))
+    repets[start.seq]&lt;-1
+    #define end (interval after blink/missing data)
+    changes.end&lt;-which(changes==-1)+1 #where NA.sequence ends
+    #gives out row numbers of NA (blink) and subsequent 8 frames
+    end.seq&lt;-unlist(lapply(changes.end, function(x) {seq(x, min(x+(samples_before-1),length(repets)))}))
+    repets[end.seq]&lt;-1
+    #replace PD data in blink interval (start to end) with NA
+    signal[repets==1]&lt;-NA
+    return(signal)
+  }
+
+#define parameters for pd preprocessing function
+  constant&lt;-3 ##--&gt; speed  higher than constant * median change is excluded - MAD calculation
+  pd_lowest_plausible&lt;-2
+  pd_highest_plausible&lt;-8
+  interpolation_span&lt;-100 #in ms
+  deletion_span&lt;-25
+  shortest_blink&lt;-75 #measured in ms
+  longest_blink&lt;-250 #measured in ms
+  smooth.length&lt;-150 #measured in ms
+  baseline_pd_cutoff&lt;-250 #when to measure baseline pd
+  
+#pupil preprocessing function
+func_pd_preprocess&lt;-function(x){
+
+  #debugging
+  #print(paste(head(x$id,1),head(x$EventCounter,1)))
+  
+  #define variables
+  Left_Diameter&lt;-x$Left.Diameter
+  Right_Diameter&lt;-x$Right.Diameter
+  RemoteTime&lt;-x$RemoteTime #assumes to be in millisecond format
+  time_span&lt;-head(x$frequency_rate,1)*1000 #in ms
+  
+  # STEP 1 - exclude invalid data ####
+  pl &lt;- ifelse((Left_Diameter&lt;pd_lowest_plausible|
+                  Left_Diameter&gt;pd_highest_plausible), NA, Left_Diameter)
+  pr &lt;- ifelse((Right_Diameter&lt;pd_lowest_plausible|
+                  Right_Diameter&gt;pd_highest_plausible), NA, Right_Diameter)
+  
+  # STEP 2 - filtering ####
+  ## A) normalized dilation speed, take into account time jumps with Remotetimestamps: ####
+  #maximum change in pd compared to last and next pd measurement
+  #Left
+  pl.speed1&lt;-diff(pl)/diff(RemoteTime) #compared to last
+  pl.speed2&lt;-diff(rev(pl))/diff(rev(RemoteTime)) #compared to next
+  pl.speed1&lt;-c(NA,pl.speed1)
+  pl.speed2&lt;-c(rev(pl.speed2),NA)
+  pl.speed&lt;-pmax(pl.speed1,pl.speed2,na.rm=T)
+  rm(pl.speed1,pl.speed2)
+  #Right
+  pr.speed1&lt;-diff(pr)/diff(RemoteTime)
+  pr.speed2&lt;-diff(rev(pr))/diff(rev(RemoteTime))
+  pr.speed1&lt;-c(NA,pr.speed1)
+  pr.speed2&lt;-c(rev(pr.speed2),NA)
+  pr.speed&lt;-pmax(pr.speed1,pr.speed2,na.rm=T)
+  rm(pr.speed1,pr.speed2)
+  #median absolute deviation -SPEED
+  #constant&lt;-3
+  pl.speed.med&lt;-median(pl.speed,na.rm=T)
+  pl.mad&lt;-median(abs(pl.speed-pl.speed.med),na.rm = T)
+  pl.treshold.speed&lt;-pl.speed.med+constant*pl.mad #treshold.speed units are mm/microsecond
+  pr.speed.med&lt;-median(pr.speed,na.rm=T)
+  pr.mad&lt;-median(abs(pr.speed-pr.speed.med),na.rm = T)
+  pr.treshold.speed&lt;-pr.speed.med+constant*pr.mad #treshold.speed units are mm/microsecond
+  #correct pupil dilation for speed outliers
+  pl&lt;-ifelse(abs(pl.speed)&gt;pl.treshold.speed,NA,pl)
+  pr&lt;-ifelse(abs(pr.speed)&gt;pr.treshold.speed,NA,pr)
+
+  ## B) delete data around blinks ####
+  #gaps=missing data sections &gt; 75ms; Leonie: also &lt;=250ms, otherwise not likely to be a blink
+  #to be excluded: samples within 50 ms of gaps -&gt; +-25 (8 data points) oder 50?
+    #take sampling rate into account (300 vs. 120) - define individual values:
+    # individial_lower_threshold&lt;-round(shortest_blink/median(diff(RemoteTime),na.rm=T))
+    # individial_upper_threshold&lt;-round(longest_blink/median(diff(RemoteTime),na.rm=T))
+    # individial_deletion_span&lt;-round(deletion_span/median(diff(RemoteTime),na.rm=T))
+    individial_lower_threshold&lt;-round(shortest_blink/time_span)
+    individial_upper_threshold&lt;-round(longest_blink/time_span)
+    individial_deletion_span&lt;-round(deletion_span/time_span)
+    
+   pl&lt;-fun_blink_cor(pl,
+                     lower_threshold=individial_lower_threshold,
+                     upper_threshold=individial_upper_threshold,
+                     samples_before=individial_deletion_span,
+                     samples_after=individial_deletion_span)
+   pr&lt;-fun_blink_cor(pr,
+                     lower_threshold=individial_lower_threshold,
+                     upper_threshold=individial_upper_threshold,
+                     samples_before=individial_deletion_span,
+                     samples_after=individial_deletion_span)
+
+  ## C) normalized dilation size - median absolute deviation -SIZE ####
+  #applies a two pass approach
+  #first pass: exclude deviation from trend line derived from all samples
+  #second pass: exclude deviation from trend line derived from samples passing first pass
+  #-_&gt; reintroduction of sample that might have been falsely excluded due to outliers
+  #estimate smooth size based on sampling rate
+  #take sampling rate into account (300 vs. 120):
+  #smooth.size&lt;-round(smooth.length/median(diff(RemoteTime),na.rm=T)) #timestamp resolution in milliseconds
+  #use frequency rate directly as calculated above
+  smooth.size&lt;-round(smooth.length/time_span)
+  is.even&lt;-function(x){x%%2==0}
+  smooth.size&lt;-ifelse(is.even(smooth.size)==T,smooth.size+1,smooth.size) #make sure to be odd value (see runmed)
+  #Left
+  pl.smooth&lt;-na.approx(pl,na.rm=F,rule=2) #impute missing values with interpolation
+  #pl.smooth&lt;-runmed(pl.smooth,k=smooth.size) #smooth algorithm by running median of 15 * 3.3ms
+  if(sum(!is.na(pl.smooth))!=0){pl.smooth&lt;-runmed(pl.smooth,k=smooth.size)} #run smooth algo only if not all elements == NA
+  pl.mad&lt;-median(abs(pl-pl.smooth),na.rm=T)
+  #Right
+  pr.smooth&lt;-na.approx(pr,na.rm=F,rule=2) #impute missing values with interpolation
+  #pr.smooth&lt;-runmed(pr.smooth,k=smooth.size) #smooth algorithm by running median of 15 * 3.3ms
+  if(sum(!is.na(pr.smooth))!=0){pr.smooth&lt;-runmed(pr.smooth,k=smooth.size)} #run smooth algo only if not all elements == NA
+  pr.mad&lt;-median(abs(pr-pr.smooth),na.rm=T)
+  #correct pupil dilation for size outliers - FIRST pass
+  pl.pass1&lt;-ifelse((pl&gt;pl.smooth+constant*pl.mad)|(pl&lt;pl.smooth-constant*pl.mad),NA,pl)
+  pr.pass1&lt;-ifelse((pr&gt;pr.smooth+constant*pr.mad)|(pr&lt;pr.smooth-constant*pr.mad),NA,pr)
+  #Left
+  pl.smooth&lt;-na.approx(pl.pass1,na.rm=F,rule=2) #impute missing values with interpolation
+  #pl.smooth&lt;-runmed(pl.smooth,k=smooth.size) #smooth algorithm by running median of 15 * 3.3ms
+  if(sum(!is.na(pl.smooth))!=0){pl.smooth&lt;-runmed(pl.smooth,k=smooth.size)} #run smooth algo only if not all elements == NA
+  pl.mad&lt;-median(abs(pl-pl.smooth),na.rm=T)
+  #Right
+  pr.smooth&lt;-na.approx(pr.pass1,na.rm=F,rule=2) #impute missing values with interpolation
+  #pr.smooth&lt;-runmed(pr.smooth,k=smooth.size) #smooth algorithm by running median of 15 * 3.3ms
+  if(sum(!is.na(pr.smooth))!=0){pr.smooth&lt;-runmed(pr.smooth,k=smooth.size)} #run smooth algo only if not all elements == NA
+  pr.mad&lt;-median(abs(pr-pr.smooth),na.rm=T)
+  #correct pupil dilation for size outliers - SECOND pass
+  pl.pass2&lt;-ifelse((pl&gt;pl.smooth+constant*pl.mad)|(pl&lt;pl.smooth-constant*pl.mad),NA,pl)
+  pr.pass2&lt;-ifelse((pr&gt;pr.smooth+constant*pr.mad)|(pr&lt;pr.smooth-constant*pr.mad),NA,pr)
+  pl&lt;-pl.pass2
+  pr&lt;-pr.pass2
+
+  ## D) sparsity filter - not applied ####
+  # STEP 3 - processing valid samples  ####
+  #take offset between left and right into account
+  pd.offset&lt;-pl-pr
+  pd.offset&lt;-na.approx(pd.offset,rule=2)
+  #mean pupil dilation across both eyes
+  pl &lt;- ifelse(is.na(pl)==FALSE, pl, pr+pd.offset)
+  pr &lt;- ifelse(is.na(pr)==FALSE, pr, pl-pd.offset)
+
+  #interpolation of NA (for &lt;=300ms)
+   # individual_interpolation_samples&lt;-round(interpolation_span/median(diff(RemoteTime),na.rm=T))
+  individual_interpolation_samples&lt;-round(interpolation_span/time_span)
+  
+  pl&lt;-na.approx(pl, na.rm=F, maxgap=individual_interpolation_samples, rule=2)
+  pr&lt;-na.approx(pr, na.rm=F, maxgap=individual_interpolation_samples, rule=2)
+
+  pd &lt;- (pl+pr)/2
+
+  #calculate baseline pd - mean of first 250ms
+  baseline_pd&lt;-mean(pd[x$time_event&lt;=baseline_pd_cutoff],na.rm=T)
+  baseline_pd&lt;-rep(baseline_pd,nrow(x))
+
+  #return pupillometry values
+  x[,&#39;pd_baseline&#39;]&lt;-baseline_pd
+  x[,&#39;pd&#39;]&lt;-pd
+  x[,&#39;rpd&#39;]&lt;-pd-baseline_pd
+  return(x)
+}
+
+
+# ### apply to epoch dataset:
+# #split each participant to epochs
+# df_list_split&lt;-pblapply(df_list_epoch,
+#                         function(x){split(x,f=as.factor(x$EventCounter_epoch))})
+# 
+# rm(df_list_epoch)
+# 
+# df_list_split&lt;-pblapply(df_list_split,
+#                         function(x){lapply(x,func_pd_preprocess)})
+# 
+# saveRDS(df_list_split, file=&quot;C:/Users/nico/Desktop/mmn_leap_epochs_preprocessed_04072024.Rds&quot;,compress = F)
+# 
+# # df_list_epoch&lt;-pblapply(df_list_split,rbindlist)
+# # rm(df_list_split)
+
+
+###apply to trial dataset
+
+ #split each participant to trial
+ df_list_split&lt;-pblapply(df_list,function(x){split(x,f=as.factor(x$EventCounter))})
+ df_list_split&lt;-pblapply(df_list_split,function(x){lapply(x,func_pd_preprocess)})</code></pre>
+<pre><code>Warning in runmed(pl.smooth, k = smooth.size): &#39;k&#39; is bigger than &#39;n&#39;! Changing
+&#39;k&#39; to 43</code></pre>
+<pre><code>Warning in runmed(pr.smooth, k = smooth.size): &#39;k&#39; is bigger than &#39;n&#39;! Changing
+&#39;k&#39; to 43</code></pre>
+<pre><code>Warning in runmed(pl.smooth, k = smooth.size): &#39;k&#39; is bigger than &#39;n&#39;! Changing
+&#39;k&#39; to 43</code></pre>
+<pre><code>Warning in runmed(pr.smooth, k = smooth.size): &#39;k&#39; is bigger than &#39;n&#39;! Changing
+&#39;k&#39; to 43</code></pre>
+<pre class="r"><code> saveRDS(df_list_split, file=&quot;C:/Users/nico/Desktop/mmn_leap_trials_preprocessed_04072024.Rds&quot;,compress = F)
+
+# df_list&lt;-pblapply(df_list_split,rbindlist)
+# rm(df_list_split)
+
+    # ##testing:
+    # test&lt;-df_list_split[[170]][[77]]
+    # #test2&lt;-func_pd_preprocess(test)
+    # plot(test$rpd)
+    # rm(test,test2)
+
+###save to file</code></pre>
+</div>
+<div id="estimate-pupil-response-function" class="section level1">
+<h1>estimate pupil response function</h1>
+<pre class="r"><code>df_sega&lt;-readRDS(&quot;C:/Users/nico/Desktop/preprocessed_auditory_ETdata.rds&quot;)</code></pre>
+<br>
+<p>
+<button type="button" class="btn btn-default btn-workflowr btn-workflowr-sessioninfo" data-toggle="collapse" data-target="#workflowr-sessioninfo" style="display: block;">
+<span class="glyphicon glyphicon-wrench" aria-hidden="true"></span>
+Session information
+</button>
+</p>
+<div id="workflowr-sessioninfo" class="collapse">
+<pre class="r"><code>sessionInfo()</code></pre>
+<pre><code>R version 4.2.2 (2022-10-31 ucrt)
+Platform: x86_64-w64-mingw32/x64 (64-bit)
+Running under: Windows 10 x64 (build 22631)
+
+Matrix products: default
+
+locale:
+[1] LC_COLLATE=English_Germany.utf8  LC_CTYPE=English_Germany.utf8   
+[3] LC_MONETARY=English_Germany.utf8 LC_NUMERIC=C                    
+[5] LC_TIME=English_Germany.utf8    
+
+attached base packages:
+[1] stats     graphics  grDevices utils     datasets  methods   base     
+
+other attached packages:
+[1] zoo_1.8-11        pbapply_1.6-0     readxl_1.4.2      data.table_1.14.6
+
+loaded via a namespace (and not attached):
+ [1] Rcpp_1.0.9       pillar_1.9.0     compiler_4.2.2   bslib_0.4.1     
+ [5] cellranger_1.1.0 later_1.3.0      jquerylib_0.1.4  git2r_0.30.1    
+ [9] workflowr_1.7.0  tools_4.2.2      digest_0.6.30    lattice_0.20-45 
+[13] jsonlite_1.8.4   evaluate_0.18    lifecycle_1.0.3  tibble_3.2.1    
+[17] pkgconfig_2.0.3  rlang_1.1.1      cli_3.6.1        rstudioapi_0.14 
+[21] parallel_4.2.2   yaml_2.3.6       xfun_0.35        fastmap_1.1.0   
+[25] stringr_1.5.0    knitr_1.41       fs_1.5.2         vctrs_0.6.2     
+[29] sass_0.4.4       grid_4.2.2       rprojroot_2.0.3  glue_1.6.2      
+[33] R6_2.5.1         fansi_1.0.3      rmarkdown_2.18   magrittr_2.0.3  
+[37] promises_1.2.0.1 htmltools_0.5.4  httpuv_1.6.6     utf8_1.2.2      
+[41] stringi_1.7.8    cachem_1.0.6    </code></pre>
+</div>
+</div>
+
+
+<!-- Adjust MathJax settings so that all math formulae are shown using
+TeX fonts only; see
+https://docs.mathjax.org/en/latest/web/configuration.html. This will make
+the presentation more consistent at the cost of the webpage sometimes
+taking slightly longer to load. Note that this only works because the
+footer is added to webpages before the MathJax javascript. -->
+<script type="text/x-mathjax-config">
+  MathJax.Hub.Config({
+    "HTML-CSS": { availableFonts: ["TeX"] }
+  });
+</script>
+
+
+
+
+</div>
+</div>
+
+</div>
+
+<script>
+
+// add bootstrap table styles to pandoc tables
+function bootstrapStylePandocTables() {
+  $('tr.odd').parent('tbody').parent('table').addClass('table table-condensed');
+}
+$(document).ready(function () {
+  bootstrapStylePandocTables();
+});
+
+
+</script>
+
+<!-- tabsets -->
+
+<script>
+$(document).ready(function () {
+  window.buildTabsets("TOC");
+});
+
+$(document).ready(function () {
+  $('.tabset-dropdown > .nav-tabs > li').click(function () {
+    $(this).parent().toggleClass('nav-tabs-open');
+  });
+});
+</script>
+
+<!-- code folding -->
+
+<script>
+$(document).ready(function ()  {
+
+    // temporarily add toc-ignore selector to headers for the consistency with Pandoc
+    $('.unlisted.unnumbered').addClass('toc-ignore')
+
+    // move toc-ignore selectors from section div to header
+    $('div.section.toc-ignore')
+        .removeClass('toc-ignore')
+        .children('h1,h2,h3,h4,h5').addClass('toc-ignore');
+
+    // establish options
+    var options = {
+      selectors: "h1,h2,h3",
+      theme: "bootstrap3",
+      context: '.toc-content',
+      hashGenerator: function (text) {
+        return text.replace(/[.\\/?&!#<>]/g, '').replace(/\s/g, '_');
+      },
+      ignoreSelector: ".toc-ignore",
+      scrollTo: 0
+    };
+    options.showAndHide = true;
+    options.smoothScroll = true;
+
+    // tocify
+    var toc = $("#TOC").tocify(options).data("toc-tocify");
+});
+</script>
+
+<!-- dynamically load mathjax for compatibility with self-contained -->
+<script>
+  (function () {
+    var script = document.createElement("script");
+    script.type = "text/javascript";
+    script.src  = "https://mathjax.rstudio.com/latest/MathJax.js?config=TeX-AMS-MML_HTMLorMML";
+    document.getElementsByTagName("head")[0].appendChild(script);
+  })();
+</script>
+
+</body>
+</html>

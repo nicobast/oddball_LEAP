@@ -1,0 +1,2595 @@
+---
+title: "data_analysis_oddball_leap_231023"
+author: "Nico Bast"
+output: html_document
+date: "`r Sys.Date()`"
+editor_options: 
+  chunk_output_type: console
+---
+
+# setup
+
+- changes in July 2024
+  - epoched data: every "trial" now consists of 8 trials as epoch to capture the longer pupillary response
+  - linear time-invariant filter: data is filtered with a custom filter that considers pupillary responses within epochs as pulses from other trials that are corrected with a gamma distribution estimated in an independent data set of an oddball task
+
+```{r setup, include=FALSE}
+
+#chunk options
+knitr::opts_chunk$set(echo = TRUE) #show code in markdown
+knitr::opts_chunk$set(warning = FALSE, message = FALSE) #warning to false
+eval_bayes=FALSE #evaluate chunks with Bayesian modelling - FALSE to speed up markdown
+
+## REQUIRED PACKAGES
+
+#analysis
+require(lme4) #linear mixed models
+require(lmerTest) #p-value for fixed effects in LMM
+require(emmeans) #estimated marginalized means
+require(performance) #r²_nakagawa - marginalized and conditionalk R² 
+
+#packages for MMN
+require(pbapply) #progress bar apply
+require(zoo) #rolling mean
+require(data.table) #rbindlist
+
+#visualization
+require(kableExtra) #APA tables
+library(greta) #Bayesian modelling
+require(bayesplot) #plotting Bayesian
+require(bayestestR) #credible interval ci, point estimates Bayesian
+require(DiagrammeR) #plotting Bayesian
+require(ggplot2) #plot posterior sampling estimates
+
+require(R.matlab) # read matlab files
+require(effectsize) # cohens D
+
+require(RColorBrewer) #color palettes
+require(gridExtra) #arrange plots
+require(wesanderson) #custom color palettes
+
+require(eegkit) #standard coordinates of EEG channels - data(eegcoord)
+require(eegUtils)
+
+require(car) #Anova function for type 3 SumSq 
+
+#INFO: eegUtils is not on CRAN and thus loaded with remote packages from github
+# install.packages("remotes")
+# remotes::install_github("craddm/eegUtils")
+
+
+#paths
+project_path<-getwd()
+#project_path<-"C:/Users/nico/PowerFolders/project_oddball_LEAP"
+localation_of_EEG_allchannel_data<-"Z:/nico/backup_data/data_AIMS/mismatch_negativity/leap_oddball_eeg_list_allchannels.rdata"
+
+
+##define parameters of posterior sampling in Bayesian modeling
+number_of_warmups <- 4000
+number_of_iterations <- 8000
+credible_interval<-0.89 #credible interval Bayesian estimates
+
+
+##define percentage of data sampling for visualization
+fraction_to_sample<-0.2 ###relevant for scalp topography (0-1)
+sampling_factor<-1/fraction_to_sample ### releavnt for MMN, pupil size change figures
+
+###graphic settings
+
+  #graphic parameters
+  theme_set(theme_bw())
+  
+  #define color palette
+  custom_condition_colors <- wes_palette('FantasticFox1',5,type='discrete')[2:5]
+  custom_contrast_colors <- c(brewer.pal(6, "Blues")[4:6],brewer.pal(6, "Oranges")[4:6])
+  custom_group_color <- brewer.pal(3, "Dark2")[1:2]
+ 
+  #RColorBrewer::display.brewer.all()
+
+```
+
+# load data
+
+Eye tracking and EEG data in separate file that are already preprocessed, see
+
+<li> [Eye-Tracking preprocessing]( https://github.com/nicobast/oddball_LEAP/blob/master/code/data_preprocessing_oddball_leap.Rmd) </li>
+<li> [EEG preprocessing](https://github.com/nicobast/oddball_LEAP/blob/master/code/read_eeg_data.R) </li>
+
+```{r load_data_ET_EEG}
+
+## pupil data
+## - df_epoch: pupillary data per trial
+## - df_dem: demographic data on participant level
+## - d_timepoint: data for each timepoint
+load(file=paste0(project_path,"/data/mmn_leap_pd_final_dfs_epoch_19072024"))
+
+## EEG data - reduced to FZ channel - see read_eeg_data.R
+#load(paste0(project_path,"/data/leap_oddball_eeg_list.rdata"))
+list_eeg_redux<-readRDS(paste0(project_path,"/data/leap_oddball_eeg_list_redux.rds"))
+
+```
+
+# calculate mismatch negativity (MMN)
+
+MMN amplitude as negativity in timeframe 50-350 ms (see function definition)
+
+```{r calculate mismatch negativity}
+
+###---> calculate MMN ####
+
+fun_estimate_mmn<-function(one_set){
+
+  #testing
+  #one_set<-list_eeg[[100]]
+
+  ###restrict to timeframe - 50-350ms
+  one_set<-one_set[one_set$times>50 & one_set$times<350,]
+
+  mmn_trial<-with(one_set,by(Fz,trial_counter,function(channel_data){
+
+      channel_data_smooth<-rollmean(channel_data,k=20) #rolling mean of 20ms
+      min(channel_data_smooth)
+
+  }))
+
+  trial_counter<-names(mmn_trial)
+  mmn<-as.numeric(mmn_trial)
+  mmn_per_trial<-data.frame(trial_counter,mmn)
+  return(mmn_per_trial)
+
+}
+
+list_mmn<-pblapply(list_eeg_redux,fun_estimate_mmn)
+
+##--> create data frame
+ID<-substr(names(list_mmn),10,22)
+condition<-substr(names(list_mmn),1,8)
+
+list_mmn<-pbmapply(function(x,y,z){
+  x$condition<-y
+  x$ID<-z
+  return(x)
+  },x=list_mmn,y=condition,z=ID,SIMPLIFY = F)
+
+df_mmn<-rbindlist(list_mmn)
+df_mmn$trial_counter<-as.numeric(df_mmn$trial_counter)
+df_mmn$condition<-as.factor(df_mmn$condition)
+
+```
+
+# merge eye-tracking and EEG data
+
+```{r merge ET and EEG}
+
+##prepare EEG data
+df_mmn$ID<-sub('/','',df_mmn$ID)
+df_mmn$ID<-sub('_','',df_mmn$ID)
+
+    #with(df_timepoint,table(subjects,wave))
+
+    #eye-tracking data with MMN data
+    table(df_timepoint$subjects %in% df_mmn$ID)
+    table(unique(df_mmn$ID) %in% df_timepoint$subjects)
+
+#create merge variables    
+df_mmn$merge_id<-interaction(df_mmn$ID,df_mmn$trial_counter)
+df_epoch$merge_id<-interaction(df_epoch$subjects,df_epoch$EventCounter)
+
+#merge - per-trial level (df_epoch)
+df_epoch<-merge(df_epoch,df_mmn,by='merge_id',all.x=T)
+
+    table(is.na(df_mmn$mmn))
+    table(is.na(df_epoch$rpd_response))
+    table(is.na(df_epoch$mmn)) #missing in MMN --> to be expected
+    ##--> not all trials analyzed in eye-tracking were selected for EEG
+    
+##some trials are not correctly matched - correct for that
+with(df_epoch,table(condition,EventData_epoch))
+df_epoch_mmn<-df_epoch[(df_epoch$EventData_epoch=='201' & df_epoch$condition=='standard'|
+                 df_epoch$EventData_epoch=='203' & df_epoch$condition=='duration'|
+                 df_epoch$EventData_epoch=='202' & df_epoch$condition=='frequenc'|
+                 df_epoch$EventData_epoch=='204' & df_epoch$condition=='combined'),]
+
+###merge per-participant level (df_timepoint)
+df_mmn_timepoint<-aggregate(mmn~id+EventData_epoch,data=df_epoch_mmn,FUN=mean,na.rm=T)
+df_mmn_timepoint<-reshape(df_mmn_timepoint, idvar = "id", timevar = "EventData_epoch", direction = "wide")
+
+df_timepoint<-merge(df_timepoint,df_mmn_timepoint,by='id',all.x = T)
+rm(df_mmn_timepoint)
+
+###which participants have MMN data
+table(!is.na(df_timepoint$mmn.201),df_timepoint$t1_diagnosis) ##
+
+```
+
+# retained trials in EEG
+
+calculate the number of retained trials in EEG data for the preprocessed set
+
+```{r mmn retained trials}
+
+unique_trials<-pbsapply(list_eeg_redux,function(x){length(unique(x$trial_counter))})
+set_condition<-pbsapply(list_eeg_redux,function(x){unique(x$condition)})
+set_ID<-pbsapply(list_eeg_redux,function(x){unique(x$ID)})
+
+set_ID<-ifelse(set_condition=='frequenc',substr(set_ID,2,13),substr(set_ID,1,12))
+
+#retained trials per condition per participant
+xtabs(unique_trials ~ set_ID + set_condition,data=data.frame(unique_trials,set_ID,set_condition)[set_ID %in% df_dem$subjects,])
+
+#retained trials per condition
+by(unique_trials[set_ID %in% df_dem$subjects],set_condition[set_ID %in% df_dem$subjects],summary)
+#--> selected per condition based on lowest number of retained trials
+mean(unique_trials)
+sd(unique_trials)
+
+mean(unique_trials)/(1400*0.06)
+
+```
+
+# calculate medication 
+
+```{r medication usage}
+
+#define medication usage
+df_dem$med_use<-ifelse(df_dem$t1_med_use %in% c('Medication use','Other medication use'),TRUE,FALSE)
+
+df_timepoint$med_use<-ifelse(df_timepoint$med_use %in% c('Medication use','Other medication use'),TRUE,FALSE)
+
+df_epoch$med_use<-ifelse(df_epoch$med_use %in% c('Medication use','Other medication use'),TRUE,FALSE)
+
+```
+
+# load and merge luminance data
+
+- see script "luminance_data_extraction.R"
+
+```{r}
+
+#load
+df_luminance<-readRDS(paste0(project_path,'/data/stimulus_luminance.rds'))
+
+#merge
+df_luminance$trials<-round(df_luminance$trials)
+df_luminance<-df_luminance[!duplicated(df_luminance$trials),]
+df_epoch<-merge(df_epoch,df_luminance,by.x='EventCounter_epoch',by.y='trials')
+
+```
+
+
+# descriptives table of sample
+
+generates a table on characteristics of the sample between groups
+
+```{r samples description}
+
+#### sample descriptives - PARTICIPANT specific ####
+
+fun_return_descriptive<-function(variable,group,rounding=2,scaling=1){
+  mean_values<-by(variable,group,function(x){round(mean(x,na.rm=T),rounding)})
+  sd_values<-by(variable,group,function(x){round(sd(x,na.rm=T),rounding)})
+  min_values<-by(variable,group,function(x){round(min(x,na.rm=T),rounding)})
+  max_values<-by(variable,group,function(x){round(max(x,na.rm=T),rounding)})
+  mean_values<-mean_values*scaling
+  sd_values<-sd_values*scaling
+  min_values<-min_values*scaling
+  max_values<-max_values*scaling
+  paste0(mean_values,'/',sd_values,' ','[',min_values,'-',max_values,']')
+}
+
+#standard descriptives
+n_group<-with(df_dem,by(subjects,t1_diagnosis,function(x){length(unique(x))}))
+gender<-with(df_dem,by(t1_sex,t1_diagnosis,function(x){paste0(table(x)[2],'/',table(x)[1])}))
+timepoints<-with(df_dem,by(timepoints,t1_diagnosis,function(x){paste0(table(x)[1],'/',table(x)[2],'/',table(x)[3])}))
+age<-with(df_dem,fun_return_descriptive(variable=t1_ageyrs,group=t1_diagnosis))
+iq<-with(df_dem,fun_return_descriptive(variable=t1_fsiq,group=t1_diagnosis))
+piq<-with(df_dem,fun_return_descriptive(variable=t1_piq,group=t1_diagnosis))
+viq<-with(df_dem,fun_return_descriptive(variable=t1_viq,group=t1_diagnosis))
+
+#clinical variables
+srs<-with(df_dem,fun_return_descriptive(variable=t1_srs_rawscore,group=t1_diagnosis))
+rbs_total<-with(df_dem,fun_return_descriptive(variable=t1_rbs_total,group=t1_diagnosis))
+sdq_total<-with(df_dem,fun_return_descriptive(variable=t1_sdq_total_difficulties_p,group=t1_diagnosis))
+adhd_inatt<-with(df_dem,fun_return_descriptive(variable=adhd_inatt,group=t1_diagnosis))
+adhd_hyper<-with(df_dem,fun_return_descriptive(variable=adhd_hyper,group=t1_diagnosis))
+anx_beck<-with(df_dem,fun_return_descriptive(variable=anx_beck,group=t1_diagnosis))
+dep_beck<-with(df_dem,fun_return_descriptive(variable=dep_beck,group=t1_diagnosis))
+
+#medication
+medi_use<-with(df_dem,by(med_use,t1_diagnosis,function(x){paste0(table(x)[2],'/',table(x)[1])}))
+
+##data quality
+#precision<-with(df_dem,fun_return_descriptive(variable=Precision,group=t1_diagnosis))
+#accuracy<-with(df_dem,fun_return_descriptive(variable=Accuracy,group=t1_diagnosis))
+#sampling_rate<-with(df_dem,by(sampling_rate,t1_diagnosis,function(x){paste0(table(x)[2],'/',table(x)[1])}))
+missing_data_trial<-with(df_dem,fun_return_descriptive(variable=missing_data_trial,group=t1_diagnosis,rounding=4,scaling = 100))
+sampling_rate<-with(df_timepoint,by(sampling_rate,t1_diagnosis,function(x){paste0(table(x)[2],'/',table(x)[1])}))
+
+#et vars
+center_dev_id<-with(df_dem,fun_return_descriptive(variable=center_dev,group=t1_diagnosis,rounding=4,scaling=100))
+#screen_dist_id<-with(df_dem,fun_return_descriptive(variable=screen_dist,group=t1_diagnosis))
+#pd_baseline_id<-with(df_dem,fun_return_descriptive(variable=pd_baseline,group=t1_diagnosis))
+pd_baseline_id<-with(df_dem,fun_return_descriptive(variable=pd_res,group=t1_diagnosis))
+
+rpd_auc_id<-with(df_epoch,fun_return_descriptive(variable=rpd_res_response,group=t1_diagnosis,rounding=4,scaling=100))
+
+descriptives_table<-rbind(n_group,gender,timepoints,age,iq,piq,viq,
+                          missing_data_trial,sampling_rate,
+                          center_dev_id,
+                          #screen_dist_id,
+                          pd_baseline_id,medi_use,
+                          srs,rbs_total,sdq_total,adhd_inatt,adhd_hyper,anx_beck,dep_beck
+                          )
+
+##group differences
+groupdiff_p<-c(NA,
+               round(as.numeric(with(df_dem,chisq.test(t1_sex,t1_diagnosis))['p.value']),3),
+               round(as.numeric(with(df_dem,chisq.test(timepoints,t1_diagnosis))['p.value']),3),
+               round(as.numeric(with(df_dem,t.test(t1_ageyrs~t1_diagnosis))['p.value']),3),
+               round(as.numeric(with(df_dem,t.test(t1_fsiq~t1_diagnosis))['p.value']),3),
+               round(as.numeric(with(df_dem,t.test(t1_piq~t1_diagnosis))['p.value']),3),
+               round(as.numeric(with(df_dem,t.test(t1_viq~t1_diagnosis))['p.value']),3),
+               round(as.numeric(with(df_dem,t.test(missing_data_trial~t1_diagnosis))['p.value']),3),
+               round(as.numeric(with(df_timepoint,chisq.test(sampling_rate,t1_diagnosis))['p.value']),3),
+               round(as.numeric(with(df_dem,t.test(center_dev~t1_diagnosis))['p.value']),3),
+               #round(as.numeric(with(df_dem,t.test(screen_dist~t1_diagnosis))['p.value']),3),
+               round(as.numeric(with(df_dem,t.test(pd_baseline~t1_diagnosis))['p.value']),3),
+               round(as.numeric(with(df_dem,chisq.test(med_use,t1_diagnosis))['p.value']),3),
+               round(as.numeric(with(df_dem,t.test(t1_srs_rawscore~t1_diagnosis))['p.value']),3),
+               round(as.numeric(with(df_dem,t.test(t1_rbs_total~t1_diagnosis))['p.value']),3),
+               round(as.numeric(with(df_dem,t.test(t1_sdq_total_difficulties_p~t1_diagnosis))['p.value']),3),
+               round(as.numeric(with(df_dem,t.test(adhd_inatt~t1_diagnosis))['p.value']),3),
+               round(as.numeric(with(df_dem,t.test(adhd_hyper~t1_diagnosis))['p.value']),3),
+               round(as.numeric(with(df_dem,t.test(anx_beck~t1_diagnosis))['p.value']),3),
+               round(as.numeric(with(df_dem,t.test(dep_beck~t1_diagnosis))['p.value']),3)
+               )
+
+groupdiff_p[which(groupdiff_p==0)]<-'<0.001'
+groupdiff_p[which(is.na(groupdiff_p))]<-'-'
+
+row_names<-c('n','gender (M/F)','timepoints (1/2/1+2)','age (in years)','IQ','perceptual IQ','verbal IQ',
+             'missing data per trial (%)','sampling rate (300Hz / 120Hz)',
+             'gaze center deviation (%)',
+             #'screen distance (mm)',
+             'mean pupil size (mm)',
+             'medication (yes/no)',
+             'SRS (total)','RBS (total)','SDQ (total)','ADHD inattention','ADHD hyperactivity','BAI (anxiety)','BDI (depression)'
+             # 'pupillary response: amplitude - standard (%)','pupillary response: amplitude - oddball pitch (%)','pupillary response: amplitude - oddball length (%)','pupillary response: amplitude - oddball both (%)',
+             # 'pupillary response: AUC - standard (%)','pupillary response: AUC - oddball pitch (%)','pupillary response: AUC - oddball length (%)','pupillary response: AUC - oddball both (%)'
+             )
+
+descriptives_table<-cbind(row_names,descriptives_table,groupdiff_p)
+
+#add group differences
+#descriptives_table<-ifelse(descriptives_table=='0','<0.001',descriptives_table)
+
+table_sample<-descriptives_table %>%
+  kbl(caption = "Sample description",
+      col.names = c('','autistic individuals (ASD)','non-autistic individuals (NTC)','group difference (p)'),
+      row.names = F) %>%
+  kable_classic(full_width = F, html_font = "Cambria")
+
+
+descriptives_table
+
+table_sample
+
+save_kable(table_sample, file=paste0(project_path,'/output/table_sampledescription.html'))
+
+
+
+
+```
+
+# group differences of dependent variables (per participant)
+
+```{r group differences per participant}
+
+#BPS
+anova(lm<-lm(scale(pd_res)~t1_diagnosis,df_timepoint))
+summary(lm)
+
+cohens_d(x=scale(pd_res)~t1_diagnosis,data=df_timepoint)
+
+#significant covariate model - PD
+lm<-lm(scale(pd_res)~t1_diagnosis+
+         scale(ageyrs)+scale(center_dev)
+       ,df_timepoint)
+Anova(lm,type='3')
+summary(lm)
+
+# anova(lm<-lm(scale(rpd_response.201)~t1_diagnosis,df_timepoint))
+# anova(lm<-lm(scale(rpd_response.202)~t1_diagnosis,df_timepoint))
+# anova(lm<-lm(scale(rpd_response.203)~t1_diagnosis,df_timepoint))
+# anova(lm<-lm(scale(rpd_response.204)~t1_diagnosis,df_timepoint))
+# anova(lm<-lm(scale(mmn.201)~t1_diagnosis,df_timepoint))
+# anova(lm<-lm(scale(mmn.202)~t1_diagnosis,df_timepoint))
+# anova(lm<-lm(scale(mmn.203)~t1_diagnosis,df_timepoint))
+# anova(lm<-lm(scale(mmn.204)~t1_diagnosis,df_timepoint))
+
+
+```
+
+# covariate effects on dependent variables (per participant)
+
+```{r covariate effects on dependent variables per participant}
+
+#BPS
+c(summary(lm(scale(pd_res)~scale(ageyrs),df_timepoint))[['coefficients']][2,1],
+      confint(lm(scale(pd)~scale(ageyrs),df_timepoint))[2,])
+
+#MMN - standards 
+c(summary(lm(scale(mmn.201)~scale(ageyrs),df_timepoint))[['coefficients']][2,1],
+      confint(lm(scale(mmn.201)~scale(ageyrs),df_timepoint))[2,])
+
+#MMN - pitch oddballs 
+c(summary(lm(scale(mmn.202)~scale(ageyrs),df_timepoint))[['coefficients']][2,1],
+      confint(lm(scale(mmn.202)~scale(ageyrs),df_timepoint))[2,])
+
+#MMN - length oddballs 
+c(summary(lm(scale(mmn.203)~scale(ageyrs),df_timepoint))[['coefficients']][2,1],
+      confint(lm(scale(mmn.203)~scale(ageyrs),df_timepoint))[2,])
+
+#MMN - pitch & length oddballs
+c(summary(lm(scale(mmn.204)~scale(ageyrs),df_timepoint))[['coefficients']][2,1],
+      confint(lm(scale(mmn.204)~scale(ageyrs),df_timepoint))[2,])
+
+
+```
+
+# associations of dependent variables (per participant)
+
+correlation coefficients on per-participant level of
+
+<li> pupillary measure: baseline pupil size (BPS) </li>
+<li> pupillary measure: stimulus-evoked pupilalry response (SEPR) </li>
+<li> EEG measure: mismatch negativity (MMN) </li>
+<li> computational model: neural gain (NG) </li>
+
+Event Data coding
+
+<li> 201 = standard </li>
+<li> 202 = pitch </li>
+<li> 203 = length </li>
+<li> 204 = pitch & length </li>
+
+
+```{r associations of dependent variables}
+
+attach(df_timepoint)
+
+cor_table<-data.frame(t(cbind(
+
+#SEPR -PD
+cbind(cor.test(rpd_res_response.201,pd_res)[c('data.name','estimate','p.value')]),
+cbind(cor.test(rpd_res_response.202,pd_res)[c('data.name','estimate','p.value')]),
+cbind(cor.test(rpd_res_response.203,pd_res)[c('data.name','estimate','p.value')]),
+cbind(cor.test(rpd_res_response.204,pd_res)[c('data.name','estimate','p.value')]),
+
+#SEPR - MMN --> uncorrelated
+cbind(cor.test(rpd_res_response.201,mmn.201)[c('data.name','estimate','p.value')]),
+cbind(cor.test(rpd_res_response.202,mmn.202)[c('data.name','estimate','p.value')]),
+cbind(cor.test(rpd_res_response.203,mmn.203)[c('data.name','estimate','p.value')]),
+cbind(cor.test(rpd_res_response.204,mmn.204)[c('data.name','estimate','p.value')]),
+
+#BPS - MMN --> substantial negative correlations
+cbind(cor.test(pd_res,mmn.201)[c('data.name','estimate','p.value')]),
+cbind(cor.test(pd_res,mmn.202)[c('data.name','estimate','p.value')]),
+cbind(cor.test(pd_res,mmn.203)[c('data.name','estimate','p.value')]),
+cbind(cor.test(pd_res,mmn.204)[c('data.name','estimate','p.value')])
+
+)))
+
+#degree of freedom
+summary(lm(mmn.201~pd_res,data=df_timepoint))
+#confidence intervals
+cor.test(rpd_res_response.201,pd_res)
+cor.test(rpd_res_response.203,pd_res)
+cor.test(rpd_res_response.201,mmn.201)
+cor.test(pd_res,mmn.201)
+cor.test(pd_res,mmn.202)
+cor.test(pd_res,mmn.203)
+cor.test(pd_res,mmn.204)
+
+
+#format table
+cor_table$data.name<-unlist(cor_table$data.name)
+cor_table$estimate<-unlist(cor_table$estimate)
+cor_table$p.value<-unlist(cor_table$p.value)
+
+cor_table$estimate<-round(cor_table$estimate,3)
+cor_table$p.value<-round(cor_table$p.value,3)
+
+cor_table$data.name<-gsub('rpd_res_response','SEPR',cor_table$data.name)
+cor_table$data.name<-gsub('pd_res','BPS',cor_table$data.name)
+cor_table$data.name<-gsub('mmn','MMN',cor_table$data.name)
+cor_table$data.name<-gsub('.201',' (standard)',cor_table$data.name)
+cor_table$data.name<-gsub('.202',' (pitch oddball)',cor_table$data.name)
+cor_table$data.name<-gsub('.203',' (length oddball)',cor_table$data.name)
+cor_table$data.name<-gsub('.204',' (pitch+length oddball)',cor_table$data.name)
+
+
+#Bonferroni correction
+number_of_comparisons<-nrow(cor_table)
+cor_table$p_adjust<-cor_table$p.value*number_of_comparisons
+cor_table$p_adjust<-ifelse(cor_table$p_adjust>1,1,cor_table$p_adjust)
+
+#produce table
+cor_table_format<-cor_table %>%
+    kbl(caption = "correlations of baseline pupil size (BPS), 
+        stimulus-evoked pupillary response (SEPR), and
+        mismatch negativity (MMN) for different stimuli.",
+        col.names = c('correlation','coefficient (r)','p','p adjusted')) %>%
+    kable_classic(full_width = F, html_font = "Cambria")
+
+cor_table_format
+
+save_kable(cor_table_format,file=paste0(project_path,'/output/supplements/associations_DV_perparticipant.html'))
+
+detach(df_timepoint)
+  
+```
+
+# significant associations between groups
+
+```{r}
+
+# BPS --> SEPR (standards)
+df_timepoint$pd_res_z<-scale(df_timepoint$pd_res)
+lm<-lm(scale(rpd_res_response.201)~pd_res_z*t1_diagnosis,df_timepoint)
+summary(lm)
+Anova(lm,type=3)
+emtrends(lm, ~ t1_diagnosis,var='pd_res_z')
+##--> specific to ASD
+
+lm<-lm(scale(rpd_res_response.201)~pd_res_z*t1_diagnosis,df_timepoint)
+Anova(lm,type=3)
+emtrends(lm, ~ t1_diagnosis,var='pd_res_z')
+
+
+# BPS --> SEPR (length)
+df_timepoint$pd_res_z<-scale(df_timepoint$pd_res)
+lm<-lm(scale(rpd_res_response.203)~pd_res_z*t1_diagnosis,df_timepoint)
+Anova(lm,type=3)
+##--> not influenced by group
+
+# BPS --> MMN (standards)
+df_timepoint$pd_res_z<-scale(df_timepoint$pd_res)
+lm<-lm(scale(mmn.201)~pd_res_z*t1_diagnosis,df_timepoint)
+Anova(lm,type=3)
+##--> not influenced by group
+
+# BPS --> MMN (standards)
+df_timepoint$pd_res_z<-scale(df_timepoint$pd_res)
+lm<-lm(scale(mmn.202)~pd_res_z*t1_diagnosis,df_timepoint)
+Anova(lm,type=3)
+##--> not influenced by group
+
+# BPS --> MMN (standards)
+df_timepoint$pd_res_z<-scale(df_timepoint$pd_res)
+lm<-lm(scale(mmn.203)~pd_res_z*t1_diagnosis,df_timepoint)
+Anova(lm,type=3)
+##--> not influenced by group
+
+# BPS --> MMN (standards)
+df_timepoint$pd_res_z<-scale(df_timepoint$pd_res)
+lm<-lm(scale(mmn.204)~pd_res_z*t1_diagnosis,df_timepoint)
+Anova(lm,type=3)
+##--> not influenced by group
+
+# MMN --> SEPR (standards)
+lm<-lm(scale(rpd_res_response.201)~scale(mmn.201)*t1_diagnosis,df_timepoint)
+summary(lm)
+Anova(lm,type=3)
+contrast(emmeans(lm,  ~ t1_diagnosis),'pairwise')
+
+lm<-lm(scale(mmn.201)~scale(rpd_res_response.201)*t1_diagnosis,df_timepoint)
+Anova(lm,type=3)
+confint(contrast(emmeans(lm,  ~ t1_diagnosis),'pairwise'))
+
+```
+
+
+# association of dependent variables (per trial)
+
+```{r BPS_SEPR_association}
+
+#interrelation of BPS and SEPR
+lmm<-lmer(scale(rpd_res_response)~scale(pd_res)*EventData_epoch+
+            (1|subjects),data=df_epoch)
+
+anova(lmm)
+
+cbind(round(fixef(lmm)['scale(pd_res)'],2),
+              round(confint(lmm,parm = 'scale(pd_res)'),2))
+
+#model fit
+r2_nakagawa(lmm)  
+  
+#BIC Bayes Factor
+lmm_ML<-lmer(scale(rpd_res_response)~scale(pd_baseline)+
+              (1|subjects),data=df_epoch,REML=F)
+
+null_lmm_ML <- lmer(scale(rpd_res_response)~1+
+                   (1|subjects),data=df_epoch,REML=F)
+
+BF_BIC <- exp((BIC(null_lmm_ML) - BIC(lmm_ML))/2)  
+BF_BIC  
+
+```  
+
+```{r BPS_SEPR_association_Bayesian, eval=eval_bayes}
+
+#restrict to complete data
+df_greta<-df_epoch[!is.na(df_epoch$pd_res),]
+df_greta<-df_greta[!is.na(df_greta$rpd_res_response),]
+
+
+ # data - create greta arrays
+    x <- as_data(scale(df_greta$pd_res))
+    y <- as_data(scale(df_greta$rpd_res_response))
+    subject_id <- as.integer(factor(df_greta$subjects)) #random intercept (in LMM)
+
+    # variables and priors
+    int <- normal(0, 1)
+    coef <- normal(0, 1)
+    sd <- student(3, 0, 1, truncation = c(0, Inf))
+    a_subject <- normal(0, 1, dim = max(subject_id))
+
+    # operations
+    mean <- int + coef * x + a_subject[subject_id]
+
+    # likelihood - distribution over data
+    distribution(y) <- normal(mean, sd)
+
+    # defining the model
+    m <- model(int, coef, sd)
+
+    # plotting
+    #require(DiagrammeR)
+    plot(m)
+
+    # sampling
+    start <-Sys.time()
+    draws <- mcmc(m, n_samples = number_of_iterations, warmup = number_of_warmups)
+    Sys.time() - start
+    
+    summary(draws)
+    
+    mcmc_trace(draws) #see whether chains converge and are stationary
+    mcmc_dens(draws) # + stable estimates
+    
+    #posterior predictive checking
+    coda::gelman.diag(draws) #Rhat <= 1.01 is cutoff for reliable estimator
+    coda::effectiveSize(draws) #ESS
+
+    #save model
+    draws_SEPR_BPS<-draws
+    save(draws_SEPR_BPS,file=paste0(project_path,'/data/Bayesian_model_SEPR_BPS.Rdata'))
+
+
+```
+
+- association of BPS and MMN
+
+```{r BPS MMN association LMM}
+
+###here use ID as random intercept (subject + wave) as MMN is only available for one timepoint
+
+#interrelation of BPS and MMN
+lmm<-lmer(scale(mmn)~scale(pd_res)*EventData_epoch+
+            (1|id),data=df_epoch)
+
+anova(lmm)
+
+cbind(round(fixef(lmm)['scale(pd_res)'],2),
+              round(confint(lmm,parm = 'scale(pd_res)'),2))
+
+#model fit
+r2_nakagawa(lmm)  
+  
+#BIC Bayes Factor
+lmm_ML<-lmer(scale(mmn)~scale(pd_res)+EventData_epoch+
+              (1|id),data=df_epoch,REML=F)
+
+null_lmm_ML <- lmer(scale(mmn)~EventData_epoch+
+                   (1|id),data=df_epoch,REML=F)
+
+BF_BIC <- exp((BIC(null_lmm_ML) - BIC(lmm_ML))/2)  
+BF_BIC  
+
+
+
+```
+
+```{r SEPR MMN association LMM}
+
+###here use ID as random intercept (subject + wave) as MMN is only available for one timepoint
+
+#interrelation of BPS and SEPR
+lmm<-lmer(scale(mmn)~scale(rpd_res_response)*EventData_epoch+
+            (1|id),data=df_epoch)
+
+anova(lmm)
+
+cbind(round(fixef(lmm)['scale(rpd_res_response)'],2),
+              round(confint(lmm,parm = 'scale(rpd_res_response)'),2))
+
+#model fit
+r2_nakagawa(lmm)  
+
+#BIC Bayes Factor
+lmm_ML<-lmer(scale(mmn)~scale(rpd_res_response)+
+              (1|id),data=df_epoch,REML=F)
+
+null_lmm_ML <- lmer(scale(mmn)~1+
+                   (1|id),data=df_epoch,REML=F)
+
+BF_BIC <- exp((BIC(null_lmm_ML) - BIC(lmm_ML))/2)  
+BF_BIC  
+
+
+```
+
+# figure - pupil size and Fz amplitude change within trials (figure 2)
+
+visualization of pupile size change (BPS,SEPR) and Fz amplitude change (MMN) within trials
+
+## MMN - scalp topography (part 1)
+
+```{r scalp topography, warnings=F}
+
+#load all EEG channel data - LARGE FILE ON DIFFERENT DRIVE
+load(file=localation_of_EEG_allchannel_data)
+
+#for standard coordinates of electrodes
+data(eegcoord) #load sample set with standard coordinates
+#rownames(eegcoord) #names of channels
+
+###select only participants that are in final sample
+subjects_in_list<-substr(names(list_mmn),10,22)
+subjects_in_list<-sub('/','',subjects_in_list)
+subjects_in_list<-sub('_','',subjects_in_list)
+list_elements_in_final_sample<-which(subjects_in_list %in% unique(df_trial$subjects))
+list_eeg_selected<-list_eeg[list_elements_in_final_sample]
+
+#participants_to_sample<-round(length(list_eeg)/4*fraction_to_sample)
+participants_to_sample<-round(length(list_eeg_selected)/4*fraction_to_sample)
+
+#select 30 random from each condition - same participants
+combined_sampled<-sample(1:(length(list_eeg_selected)/4),participants_to_sample)
+duration_sampled<-combined_sampled+length(list_eeg_selected)/4
+frequency_sampled<-combined_sampled+2*length(list_eeg_selected)/4
+standard_sampled<-combined_sampled+3*length(list_eeg_selected)/4
+
+select_samples<-c(combined_sampled,
+                  duration_sampled,
+                  frequency_sampled,
+                  standard_sampled)
+
+#select thirty random participants - from participants that have ET data
+list_eeg_selected<-list_eeg_selected[select_samples]
+
+fun_prepare_channeldata_plotting<-function(one_set,sample_coordinates){
+
+  ##testing
+  # one_set<-list_eeg_selected[[1]]
+  # sample_coordinates<-eegcoord
+  
+  #match names of sample coordnisates and data set
+  names(one_set)<-toupper(names(one_set)) #capitalize names - naming convention of eegkit
+  sample_coordinates<-sample_coordinates[rownames(sample_coordinates) %in% names(one_set),]
+  sample_coordinates$variable<-rownames(sample_coordinates)
+
+
+  #limit site to interested timeframe - 150-250 ms after trial onset
+  one_set<-one_set[one_set$TIMES >= 150 & one_set$TIMES <= 250,]
+      ###--> less flexibel but reduces file size
+  
+  #melt to long format
+  one_set$TIMES<-as.factor(one_set$TIMES) #preserve in melting
+  one_set<-reshape2::melt(one_set,value.name='amplitude') #convert to long format
+
+  #merge with sampel coordinates
+  one_set<-merge(one_set,sample_coordinates,by='variable') #merge with sample coordniates
+  names(one_set)[1]<-'electrode' #set name for later plotting function
+  one_set$TIMES<-as.numeric(levels(one_set$TIMES))[one_set$TIMES]
+  
+  return(one_set)
+
+      }
+
+#takes around 20 minutes
+list_eeg_selected<-pblapply(list_eeg_selected,fun_prepare_channeldata_plotting,sample_coordinates=eegcoord)
+df_plot<-data.table::rbindlist(list_eeg_selected)
+
+#scalp topography separated for condition
+limits_of_plotted_range<-c(-3,3)
+
+gf_4a<-topoplot(df_plot[df_plot$CONDITION=='standard',], 
+         interp_limit='head',limits=limits_of_plotted_range)+labs(title='standard') #scale coordniates to head
+
+gf_4b<-topoplot(df_plot[df_plot$CONDITION=='frequenc',], 
+         interp_limit='head',limits=limits_of_plotted_range)+labs(title='pitch oddball') #scale coordniates to head
+
+gf_4c<-topoplot(df_plot[df_plot$CONDITION=='duration',], 
+         interp_limit='head',limits=limits_of_plotted_range)+labs(title='length oddball') #scale coordniates to head
+
+gf_4d<-topoplot(df_plot[df_plot$CONDITION=='combined',],
+         interp_limit='head',limits=limits_of_plotted_range)+labs(title='pitch & length oddball') #scale coordniates to head
+
+
+#extract legend
+g_legend<-function(x){
+  tmp <- ggplot_gtable(ggplot_build(x))
+  leg <- which(sapply(tmp$grobs, function(x) x$name) == "guide-box")
+  legend <- tmp$grobs[[leg]]
+  return(legend)}
+
+mylegend<-g_legend(gf_4a)
+
+#plot in markdown
+grid.arrange(
+  arrangeGrob(
+    gf_4a + theme(legend.position="none"),
+    gf_4b + theme(legend.position="none"),
+    gf_4c + theme(legend.position="none"),
+    gf_4d + theme(legend.position="none"),nrow=2),
+  mylegend, ncol=2, widths=c(5,1))
+
+
+```
+
+## MMN - Fz amplitude change within trials (part 2)
+
+```{r Fz amplitude change}
+
+df_eeg<-data.table::rbindlist(list_eeg_redux) ##very fast compared to do.call(rbind)
+
+subsample<-sample(1:nrow(df_eeg),nrow(df_eeg)/sampling_factor) # select 10% of data for faster plotting
+
+
+    ### use participants selected for scalp topography - much slower and same results
+    # df_eeg$ID<-sub('/','',df_eeg$ID)
+    # df_eeg$ID<-sub('_','',df_eeg$ID)
+    # selected_participants<-substr(names(list_mmn)[combined_sampled],10,21)
+    # subsample<-which(df_eeg$ID %in% selected_participants)
+
+
+gf_1<-ggplot(df_eeg[subsample,],aes(x=times/1000,y=Fz,group=condition,color=condition,fill=condition))+
+  geom_smooth()+
+  labs(y='electrode Fz - amplitute (uV)',x='trial duration (s)')+
+  scale_fill_manual(values = custom_condition_colors, labels=c("standard" = "standard", "frequenc" = "pitch oddball", "duration" = "length oddball ", "combined" = "pitch & length oddball"))+
+  scale_color_manual(values = custom_condition_colors, labels=c("standard" = "standard", "frequenc" = "pitch oddball", "duration" = "length oddball ", "combined" = "pitch & length oddball"))+
+  xlim(-0.1,0.6) #allign with eye-tracking epoch for plotting
+
+gf_1
+
+```
+
+## pupil size change within trial - progression between groups (part 3+4)
+
+- see preprocessing script
+- composite figure is arranged in GIMP (image processing software)
+
+# task effects
+
+investigates influence of stimulus and task progression on pupillary measures (BPS, SEPR) and EEG measure (MMN)
+in separate linear mixed models and supported by Bayesian posterior sampling
+
+## task condition / stimulus effect
+
+```{r stimulus_on_BPS}
+
+##BPS
+## include trial characteristics - TRIAL CONDITION
+lmm<-lmer(scale(pd_res)~EventData_epoch+
+            (1|id),data=df_epoch)
+
+anova(lmm)
+emmeans(lmm,~EventData_epoch)
+confint(contrast(emmeans(lmm,~EventData_epoch),'pairwise'))
+###--> 201 > 202
+
+    
+r2_nakagawa(lmm)  
+  
+#BIC Bayes Factor
+lmm_ML<-lmer(scale(pd_res)~EventData_epoch+
+              (1|id),data=df_epoch,REML=F)
+
+null_lmm_ML <- lmer(scale(pd_res)~1+
+                  (1|id),data=df_epoch,REML=F)
+
+BF_BIC <- exp((BIC(null_lmm_ML) - BIC(lmm_ML))/2)  
+BF_BIC  
+ 
+```
+
+```{r stimulus_on_SEPR}
+
+##SEPR
+  
+## include trial characteristics - TRIAL CONDITION
+lmm<-lmer(scale(rpd_res_response)~EventData_epoch+
+            (1|id),data=df_epoch)
+
+anova(lmm)
+emmeans(lmm,~EventData_epoch)
+confint(contrast(emmeans(lmm,~EventData_epoch),'pairwise'))
+###--> 201 > 202 + 203 + 204
+
+r2_nakagawa(lmm)  
+  
+#BIC Bayes Factor  
+lmm_ML<-lmer(scale(rpd_res_response)~EventData_epoch+
+          (1|id),data=df_epoch,REML=F)
+
+null_lmm_ML <- lmer(scale(rpd_res_response)~1+
+                 (1|id),data=df_epoch,REML=F)
+
+BF_BIC <- exp((BIC(null_lmm_ML) - BIC(lmm_ML))/2)  # BICs to Bayes factor
+BF_BIC
+  
+```
+
+```{r stimulus_on_MMN}
+
+## include trial characteristics - TRIAL CONDITION
+lmm<-lmer(scale(mmn)~EventData_epoch+
+            (1|id),data=df_epoch)
+
+anova(lmm)
+emmeans(lmm,~EventData_epoch)
+confint(contrast(emmeans(lmm,~EventData_epoch),'pairwise'))
+
+r2_nakagawa(lmm)  
+  
+#BIC Bayes Factor  
+lmm_ML<-lmer(scale(mmn)~EventData_epoch+
+          (1|id),data=df_epoch,REML=F)
+
+null_lmm_ML <- lmer(scale(mmn)~1+
+                 (1|id),data=df_epoch,REML=F)
+
+BF_BIC <- exp((BIC(null_lmm_ML) - BIC(lmm_ML))/2)  # BICs to Bayes factor
+BF_BIC
+  
+```
+
+## task progression effect
+
+```{r task_progression_on_BPS}
+  
+## include trial characteristics - TASK PROGRESSION
+  lmm<-lmer(scale(pd_res)~stats::poly(EventCounter_epoch,3)+scale(luminance_m)+
+              (1|id),data=df_epoch)
+  
+  anova(lmm)
+  
+  confint(contrast(emmeans(lmm,~EventCounter_epoch,at=list(EventCounter_epoch =     seq(1,1400,699))),'revpairwise'))
+
+r2_nakagawa(lmm)  
+ 
+#effect of luminance
+cbind(round(fixef(lmm)['scale(luminance_m)'],9),
+                round(confint(lmm,parm = 'scale(luminance_m)'),9))
+
+#BIC Bayes Factor
+lmm_ML<-lmer(scale(pd_res)~stats::poly(EventCounter_epoch,3)+luminance_m+
+              (1|subjects),data=df_epoch,REML=F)
+
+null_lmm_ML <- lmer(scale(pd_res)~luminance_m++
+                   (1|subjects),data=df_epoch,REML=F)
+
+BF_BIC <- exp((BIC(null_lmm_ML) - BIC(lmm_ML))/2)  
+BF_BIC  
+
+
+```
+
+```{r task progression on SEPR}
+
+## include trial characteristics - TASK PROGRESSION
+  lmm<-lmer(scale(rpd_res_response)~EventCounter_epoch+luminance_m+
+              (1|subjects),data=df_epoch)
+  anova(lmm)
+  
+  cbind(round(fixef(lmm)['EventCounter'],9),
+                round(confint(lmm,parm = 'EventCounter'),9))
+
+  confint(contrast(emmeans(lmm,~EventCounter,at=list(EventCounter =   seq(1,1400,1399))),'pairwise'))
+  
+r2_nakagawa(lmm)  
+  
+#BIC Bayes Factor
+lmm_ML<-lmer(scale(rpd_res_response)~EventCounter_epoch+
+              (1|subjects),data=df_epoch,REML=F)
+
+null_lmm_ML <- lmer(scale(rpd_res_response)~1+
+                   (1|subjects),data=df_epoch,REML=F)
+
+BF_BIC <- exp((BIC(null_lmm_ML) - BIC(lmm_ML))/2)  
+BF_BIC  
+
+
+```
+
+```{r task progression on MMN}
+
+## include trial characteristics - TASK PROGRESSION
+  lmm<-lmer(scale(mmn)~EventCounter_epoch+
+              (1|id),data=df_epoch)
+  anova(lmm)
+  
+  cbind(round(fixef(lmm)['EventCounter'],9),
+                round(confint(lmm,parm = 'EventCounter'),9))
+
+  confint(contrast(emmeans(lmm,~EventCounter,at=list(EventCounter =   seq(1,1400,1399))),'pairwise'))
+  
+r2_nakagawa(lmm)  
+  
+#BIC Bayes Factor
+lmm_ML<-lmer(scale(mmn)~EventCounter_epoch+
+              (1|id),data=df_epoch,REML=F)
+
+null_lmm_ML <- lmer(scale(mmn)~1+
+                   (1|id),data=df_epoch,REML=F)
+
+BF_BIC <- exp((BIC(null_lmm_ML) - BIC(lmm_ML))/2)  
+BF_BIC  
+
+```
+
+## figure task effects (figure 3)
+
+create a combined figure of stimulus and task progression effects on BPS, SEPR, MMN
+
+```{r figure_task_effects}
+
+#y-axis limitation for combined plot
+y_axis_limitation<-c(-0.1, 0.18)
+
+#BPS
+lmm<-lmer(scale(pd_res)~EventData_epoch+
+              (1|id),data=df_epoch)
+
+#create plot --> of contrasts
+plot_task_effect<-plot(contrast(emmeans(lmm,~EventData_epoch),'pairwise'))[['data']]
+
+#modify plot
+g1<-ggplot(plot_task_effect,aes(x=contrast,y=the.emmean))+
+  #conventional error bar
+  geom_errorbar(aes(min=asymp.LCL,max=asymp.UCL),width=0.2)+
+  
+  # #overplot predicted values
+  # geom_jitter(data=df_plot_predicted_bps[complete.cases(df_plot_predicted_bps),],
+  #             aes(x=predicted_bps_eventdata,
+  #                 y=predicted_bps_mean,color=predicted_bps_eventdata),alpha=0.3,width=0.4,show.legend=F)+
+  #boxplot
+  geom_boxplot(aes(fill=contrast,
+                   middle=the.emmean,
+                   lower=the.emmean-1.5*SE,
+                   upper=the.emmean+1.5*SE,
+                   ymin=asymp.LCL,
+                   ymax=asymp.UCL),stat = "identity",alpha=0.7)+
+  scale_fill_manual(values = custom_contrast_colors,labels = c('standard - pitch','standard - length','standard - pitch & length','pitch - length','pitch - pitch & length','length - pitch & length'))+
+  scale_x_discrete(labels = NULL, breaks = NULL)+ #remove x-axis tick labels
+  coord_cartesian(ylim = y_axis_limitation)+
+  labs(x='contrast of stimuli',y='BPS difference (z)')
+  
+
+#SEPR -pupillary response - technical model
+lmm<-lmer(scale(rpd_res_response)~EventData_epoch+
+              (1|id),data=df_epoch)
+
+#create plot --> of contrasts
+plot_task_effect<-plot(contrast(emmeans(lmm,~EventData_epoch),'pairwise'))[['data']]
+
+#modify plot
+g2<-ggplot(plot_task_effect,aes(x=contrast,y=the.emmean))+
+  #conventional error bar
+  geom_errorbar(aes(min=asymp.LCL,max=asymp.UCL),width=0.2)+
+  
+    #boxplot
+  geom_boxplot(aes(fill=contrast,
+                   middle=the.emmean,
+                   lower=the.emmean-1.5*SE,
+                   upper=the.emmean+1.5*SE,
+                   ymin=asymp.LCL,
+                   ymax=asymp.UCL),stat = "identity",alpha=0.7)+
+  scale_fill_manual(values = custom_contrast_colors,labels = c('standard - pitch','standard - length','standard - pitch & length','pitch - length','pitch - pitch & length','length - pitch & length'))+
+  scale_x_discrete(labels = NULL, breaks = NULL)+ #remove x-axis tick labels
+  coord_cartesian(ylim = y_axis_limitation)+
+  labs(x='contrast of stimuli',y='SEPR difference (z)')
+
+##MMN
+lmm<-lmer(scale(mmn)~EventData_epoch+(1|id),df_epoch)
+
+      #create plot --> of contrasts
+      plot_task_effect<-plot(contrast(emmeans(lmm,~EventData_epoch),'pairwise'))[['data']]
+
+      #modify plot
+      g3<-ggplot(plot_task_effect,aes(x=contrast,y=the.emmean))+
+        #conventional error bar
+        geom_errorbar(aes(min=asymp.LCL,max=asymp.UCL),width=0.2)+
+        geom_boxplot(aes(fill=contrast,
+                         middle=the.emmean,
+                         lower=the.emmean-1.5*SE,
+                         upper=the.emmean+1.5*SE,
+                         ymin=asymp.LCL,
+                         ymax=asymp.UCL),stat = "identity",alpha=0.7)+
+        scale_fill_manual(values = custom_contrast_colors,labels = c('standard - pitch','standard - length','standard - pitch & length','pitch - length','pitch - pitch & length','length - pitch & length'))+
+        scale_x_discrete(labels = NULL, breaks = NULL)+ #remove x-axis tick labels
+        coord_cartesian(ylim = y_axis_limitation)+
+        labs(x='contrast of stimuli',y='MMN difference (z)')
+
+
+###task progression BPS
+BPS_progression<-lmer(scale(pd_res)~stats::poly(EventCounter_epoch,3)+
+              (1|id),data=df_epoch)
+      
+model_plot_data_BPS<-as.data.frame(emmeans(BPS_progression,~EventCounter_epoch,at=list(EventCounter_epoch = seq(1,1400,140))))
+    
+g4<-ggplot(model_plot_data_BPS,aes(x=EventCounter_epoch,y=emmean))+
+  geom_crossbar(aes(ymin=emmean-1*SE,ymax=emmean+1*SE),alpha=0.8,position='dodge',fill='grey35')+
+  geom_errorbar(aes(ymin=asymp.LCL,ymax=asymp.UCL),position='dodge')+
+  coord_cartesian(ylim = c(-0.2,0.25))+
+  labs(x='task progression (trial)',y='baseline pupil size (BPS, z)')
+
+###task progression SEPR
+SEPR_progression<-lmer(scale(rpd_res_response)~EventCounter_epoch+
+              (1|id),data=df_epoch)
+      
+      
+model_plot_data_SEPR<-as.data.frame(emmeans(SEPR_progression,~EventCounter_epoch,at=list(EventCounter_epoch = seq(1,1400,140))))
+    
+g5<-ggplot(model_plot_data_SEPR,aes(x=EventCounter_epoch,y=emmean))+
+  geom_crossbar(aes(ymin=emmean-1*SE,ymax=emmean+1*SE),alpha=0.8,position='dodge',fill='grey35')+
+  geom_errorbar(aes(ymin=asymp.LCL,ymax=asymp.UCL),position='dodge')+
+  coord_cartesian(ylim = c(-0.2,0.25))+
+  labs(x='task progression (trial)',y='pupillary response (SEPR, z)')
+
+###task progression MMN
+MMN_progression<-lmer(scale(mmn)~EventCounter_epoch+
+              (1|id),data=df_epoch)
+      
+model_plot_data_MMN<-as.data.frame(emmeans(MMN_progression,~EventCounter_epoch,at=list(EventCounter_epoch = seq(1,1400,140))))
+    
+g6<-ggplot(model_plot_data_MMN,aes(x=EventCounter_epoch,y=emmean))+
+  geom_crossbar(aes(ymin=emmean-1*SE,ymax=emmean+1*SE),alpha=0.8,position='dodge',fill='grey35')+
+  geom_errorbar(aes(ymin=asymp.LCL,ymax=asymp.UCL),position='dodge')+
+  coord_cartesian(ylim = c(-0.2,0.25))+
+  labs(x='task progression (trial)',y='mismatch negativity (MMN, z)')
+
+#extract legend
+g_legend<-function(x){
+  tmp <- ggplot_gtable(ggplot_build(x))
+  leg <- which(sapply(tmp$grobs, function(x) x$name) == "guide-box")
+  legend <- tmp$grobs[[leg]]
+  return(legend)}
+
+mylegend_contrast<-g_legend(g3)
+
+      
+###composite figure layout
+lay <- rbind(c(1,2,3,7),
+             c(4,5,6,7))
+
+
+#plot in markdown
+grid.arrange(g1+theme(legend.position="none")+xlab(''),
+             g2+theme(legend.position="none"),
+             g3+theme(legend.position="none")+xlab(''),
+             g4+xlab(''),
+             g5,
+             g6+xlab(''),
+             mylegend_contrast,layout_matrix=lay)
+
+#save to file
+tiff(file=paste0(project_path,"/output/figures/task_effects_contrasts_progression.tiff"), # create a file in tiff format in 
+  width=8, height=5, units="in", res=300, compression='lzw') #define size and resolution of the resulting figure
+
+grid.arrange(g1+theme(legend.position="none")+xlab(''),
+             g2+theme(legend.position="none"),
+             g3+theme(legend.position="none")+xlab(''),
+             g4+xlab(''),
+             g5,
+             g6+xlab(''),
+             mylegend_contrast,layout_matrix=lay)
+      
+
+dev.off() #close operation and save file
+
+
+```
+
+# group differences
+
+## baseline pupil size (BPS)
+
+```{r BPS task progression between groups - LMM}
+
+#main model
+lmm_REML<-lmer(scale(pd_res)~EventData_epoch*t1_diagnosis*stats::poly(EventCounter_epoch,3)+scale(luminance_m)+
+              (1|id),data=df_epoch)
+
+#fixed effect significances
+anova(lmm_REML)
+
+#model fit
+r2_nakagawa(lmm_REML)
+
+# #POST-HOC
+# contrast(emmeans(lmm_REML,~EventData_epoch|t1_diagnosis),'pairwise')
+# ##--> lower BPS in ASD for length versus standards
+
+#Post-hoc - between group
+emtrends(lmm_REML,~t1_diagnosis,var='EventCounter_epoch')
+
+#emmeans(lmm_REML,~t1_diagnosis|EventCounter,at=list(EventCounter = seq(1,1400,1399)))
+emmeans(lmm_REML,~t1_diagnosis|EventCounter_epoch,at=list(EventCounter_epoch = seq(1,1400,699)))
+
+
+  confint(contrast(emmeans(lmm_REML,~EventCounter_epoch|t1_diagnosis,at=list(EventCounter_epoch =   seq(1,1400,699))),'revpairwise'))
+
+
+#Bayes factor - group x task progression
+lmm_ML<-lmer(scale(pd_res)~EventData_epoch*t1_diagnosis*stats::poly(EventCounter_epoch,3)+
+              (1|id),data=df_epoch,REML=F)
+
+null_lmm_ML <- lmer(scale(pd_res)~EventData_epoch+t1_diagnosis+stats::poly(EventCounter_epoch,3)+
+                   EventData_epoch:EventCounter_epoch+EventData_epoch:t1_diagnosis+
+              (1|id),data=df_epoch,REML=F)
+
+BF_BIC <- exp((BIC(null_lmm_ML) - BIC(lmm_ML))/2)  # BICs to Bayes factor
+BF_BIC
+
+### compare full model for influence of covariates
+
+#full model
+lmm_full<-lmer(scale(pd_res)~EventData_epoch*t1_diagnosis*stats::poly(EventCounter_epoch,3)+
+               scale(ageyrs)+scale(t1_piq)+sex+
+               scale(center_dev)+as.factor(sampling_rate)+scale(missing_data_trial)+
+              (1|id),data=df_epoch)
+              #--> group effect (interaction) is robust in reduced and full model
+
+anova(lmm_full)
+
+  
+```
+
+```{r BPS task progression between groups - Bayesian, eval=eval_bayes}
+
+##define parameters of posterior sampling in Bayesian modeling
+number_of_warmups <- 4000
+number_of_iterations <- 8000
+credible_interval<-0.89 #credible interval Bayesian estimates
+
+df_greta<-df_epoch[!is.na(df_epoch$pd_res),]
+
+# A. translate data - make greta arrays
+y <- as_data(scale(df_greta$pd_res))
+design <- as.matrix(cbind(ifelse(df_greta$t1_diagnosis=='ASD',T,F),df_greta$EventCounter_epoch))
+subject_id <- as.integer(factor(df_greta$id)) #random intercept (in LMM)
+
+#define priors
+int <- normal(0, 1)
+design_coef<- normal(0, 1, dim=ncol(design))
+sd <- cauchy(0, 3, truncation = c(0, Inf))
+#sd <- student(3, 0, 1, truncation = c(0, Inf))
+a_subject <- normal(0, 1, dim = max(subject_id))
+
+#OPERATIONS - MODEL
+mean <- int + design %*% design_coef + a_subject[subject_id]
+
+# likelihood - distribution over data
+distribution(y) <- normal(mean, sd)
+
+# defining the model
+m <- model(design_coef)
+
+# sampling
+start <-Sys.time()
+draws <- mcmc(m, n_samples = number_of_iterations, warmup = number_of_warmups,) ###--> test
+Sys.time() - start
+
+#save model
+draws_BPS_twoway<-draws
+save(draws_BPS_twoway,file=paste0(project_path,'/data/Bayesian_model_BPS_twoway.Rdata'))
+
+#posterior estimates
+point_estimate(draws_BPS_twoway)
+ci(draws_BPS_twoway,ci=credible_interval)
+
+```
+
+## stimulus-evoked pupillary response
+
+```{r SEPR task progression between groups LMM}
+
+#MAIN MODEL - pupillary response by group - random intercept
+lmm_REML<-lmer(scale(rpd_res_response)~EventData_epoch*t1_diagnosis*EventCounter_epoch+scale(luminance_m)+
+            (1|id),data=df_epoch)
+            
+#fixed effect significances
+anova(lmm_REML)
+
+#coefficient of determination
+r2_nakagawa(lmm_REML)
+
+#Bayes factor - group x task progression
+lmm_ML<-lmer(scale(rpd_res_response)~EventData_epoch*t1_diagnosis*EventCounter_epoch+
+                (1|id),data=df_epoch,REML=F)
+
+null_lmm_ML <- lmer(scale(rpd_res_response)~EventData_epoch+EventCounter_epoch+
+                 EventData_epoch:EventCounter_epoch+EventData_epoch:t1_diagnosis:EventCounter_epoch+
+                (1|id),data=df_epoch,REML=F)
+
+  BF_BIC <- exp((BIC(null_lmm_ML) - BIC(lmm_ML))/2)  # BICs to Bayes factor
+  BF_BIC
+
+```
+
+```{r SEPR_three_way_interaction Bayesian, eval=eval_bayes}
+
+# A. translate data - make greta arrays
+y <- as_data(scale(df_trial$rpd_auc))
+trials <- as_data(scale(df_trial$EventCounter))
+subject_id <- as.integer(factor(df_trial$subjects)) #random intercept (in LMM)
+events <- as_data(model.matrix(~ EventData - 1, df_trial)) #alternative to dummy coding?
+interaction_variable<-with(df_trial,interaction(t1_diagnosis,EventData))
+group_by_events <- as_data(model.matrix(~interaction_variable-1, df_trial)) #alternative to dummy coding - remove intercept (-1)
+#table(group_by_events[,1],group_by_events[,9])
+
+#define priors
+event_coefs<- normal(0, 1, dim=ncol(events))
+group_event_coefs <- normal(0,1, dim=ncol(group_by_events))
+
+sd <- cauchy(0, 3, truncation = c(0, Inf))
+a_subject <- normal(0, 1, dim = max(subject_id))
+
+#OPERATIONS - MODEL
+mean <- trials * group_by_events %*% group_event_coefs + a_subject[subject_id]
+
+# likelihood - distribution over data
+distribution(y) <- normal(mean, sd)
+
+# defining the model
+#m <- model(int, coef_201, coef_202, coef_203, coef_204, sd)
+m <- model(group_event_coefs)
+
+# sampling
+start <-Sys.time()
+draws <- mcmc(m, n_samples = number_of_iterations, warmup = number_of_warmups) ###--> test
+Sys.time() - start
+
+#save model
+draws_SEPR_threeway<-draws
+save(draws_SEPR_threeway,file=paste0(project_path,'/data/Bayesian_model_SEPR_threewayinteraction.Rdata'))
+
+#posterior estimates
+table(interaction_variable) #names of coefficients
+point_estimate(draws_SEPR_threeway)
+ci(draws_SEPR_threeway,ci=credible_interval)
+
+
+```
+
+## mismatch negativity between groups
+
+```{r MMN task progression - LLM}
+
+#MAIN MODEL - MMN by group - random intercept
+lmm_REML<-lmer(scale(mmn)~EventData_epoch*t1_diagnosis*EventCounter_epoch+
+            (1|id),data=df_epoch)
+
+#fixed effect significances
+anova(lmm_REML)
+
+#coefficient of determination
+r2_nakagawa(lmm_REML)
+
+#Bayes factor - group x task progression
+lmm_ML<-lmer(scale(mmn)~EventData_epoch*t1_diagnosis*EventCounter_epoch+
+                (1|id),data=df_epoch,REML=F)
+
+null_lmm_ML <- lmer(scale(mmn)~EventData_epoch+EventCounter_epoch+
+                 EventData_epoch:EventCounter_epoch+EventData_epoch:t1_diagnosis+
+                (1|id),data=df_epoch,REML=F)
+
+  BF_BIC <- exp((BIC(null_lmm_ML) - BIC(lmm_ML))/2)  # BICs to Bayes factor
+  BF_BIC
+
+
+#full model
+lmm_full<-lmer(scale(mmn)~EventData*t1_diagnosis*EventCounter+
+               scale(ageyrs)+scale(t1_piq)+sex+
+               scale(center_dev)+as.factor(sampling_rate)+scale(missing_data_trial)+
+              (1|id),data=df_trial)
+              #--> group effect (interaction) is robust in reduced and full model
+
+anova(lmm_full)
+
+#coefficient of determination
+r2_nakagawa(lmm_full)
+
+
+confint(contrast(emtrends(lmm_REML,~t1_diagnosis|EventData,var='EventCounter'),'pairwise'))
+
+      plot(emtrends(lmm_REML,~t1_diagnosis|EventData,var='EventCounter'))
+
+      
+##translate to changes across the task
+confint(contrast(emmeans(lmm_REML,~EventCounter|t1_diagnosis+EventData,at=list(EventCounter =   seq(1,1400,1399))),'revpairwise'))
+
+
+
+```
+
+```{r MMN task progression - Bayesian, eval=eval_bayes}
+
+#remove NA
+df_bayesian_mmn<-df_trial[!is.na(df_trial$mmn),]
+
+# A. translate data - make greta arrays
+y <- as_data(scale(df_bayesian_mmn$mmn))
+trials <- as_data(scale(df_bayesian_mmn$EventCounter))
+subject_id <- as.integer(factor(df_bayesian_mmn$subjects)) #random intercept (in LMM)
+events <- as_data(model.matrix(~ EventData - 1, df_bayesian_mmn)) #alternative to dummy coding?
+interaction_variable<-with(df_bayesian_mmn,interaction(t1_diagnosis,EventData))
+group_by_events <- as_data(model.matrix(~interaction_variable-1, df_bayesian_mmn)) #alternative to dummy coding - remove intercept (-1)
+#table(group_by_events[,1],group_by_events[,9])
+
+#define priors
+event_coefs<- normal(0, 1, dim=ncol(events))
+group_event_coefs <- normal(0,1, dim=ncol(group_by_events))
+
+sd <- cauchy(0, 3, truncation = c(0, Inf))
+a_subject <- normal(0, 1, dim = max(subject_id))
+
+#OPERATIONS - MODEL
+mean <- trials * group_by_events %*% group_event_coefs + a_subject[subject_id]
+
+# likelihood - distribution over data
+distribution(y) <- normal(mean, sd)
+
+# defining the model
+#m <- model(int, coef_201, coef_202, coef_203, coef_204, sd)
+m <- model(group_event_coefs)
+
+# sampling
+start <-Sys.time()
+draws <- mcmc(m, n_samples = number_of_iterations, warmup = number_of_warmups) ###--> test
+Sys.time() - start
+
+
+#estimator convergence
+mcmc_trace(draws) #see whether chains converge and are stationary
+mcmc_dens(draws) # + stable estimates
+
+##results
+mcmc_areas(draws, prob= .66, prob_outer = .95)+scale_y_discrete(labels=c('ASD-standard','TD-standard ','ASD-pitch','TD-pitch','ASD-length ','TD-length','ASD-pitch+length','TD-pitch+length'))+coord_flip()+theme_bw()
+
+#analyse
+summary(draws)
+
+
+#posterior predictive checking
+coda::gelman.diag(draws) #Rhat <= 1.01 is cutoff for reliable estimator
+coda::effectiveSize(draws) #ESS - the higher the better
+
+#save model
+draws_MMN_threeway<-draws
+save(draws_MMN_threeway,file=paste0(project_path,'/data/Bayesian_model_MMN_threewayinteraction.Rdata'))
+
+#posterior estimate
+table(interaction_variable) #names of coefficients
+point_estimate(draws_MMN_threeway)
+ci(draws_MMN_threeway,ci=credible_interval)
+
+
+```
+
+## figure group differences LMM + Bayesian
+
+added to a compostie figure - not evaluated
+
+```{r figure_BPS_SEP_MMN_between_groups, eval=FALSE}
+#main models
+BPS_progression<-lmer(scale(pd_res)~EventData_epoch*t1_diagnosis*stats::poly(EventCounter_epoch,3)+
+              (1|id),data=df_epoch)
+
+#plot interaction
+model_plot_data_BPS1<-as.data.frame(emmeans(BPS_progression,~t1_diagnosis+EventCounter_epoch,
+                                       at=list(EventCounter_epoch = seq(1,1400,140))))
+
+g1<-ggplot(model_plot_data_BPS1,aes(x=EventCounter_epoch,y=emmean,group=t1_diagnosis,color=t1_diagnosis))+
+  geom_crossbar(aes(ymin=emmean-1*SE,ymax=emmean+1*SE,fill=t1_diagnosis),alpha=0.8,position='dodge')+
+  geom_errorbar(aes(ymin=asymp.LCL,ymax=asymp.UCL),position='dodge')+
+  scale_color_manual(name = "groups", labels = c("autistic", "non-autistic"),values = custom_group_color)+
+  scale_fill_manual(name = "groups", labels = c("autistic", "non-autistic"),values = custom_group_color)+
+  labs(x='task progression (trial)',y='marginalized mean (z)')+
+  theme(legend.position = 'none')
+
+
+#main models - Bayesian --> load
+load(file=paste0(project_path,'/data/Bayesian_model_BPS_twoway.Rdata')) #draws_BPS_twoway
+
+#draws_BPS_twoway
+plot_data<-mcmc_areas_data(draws_BPS_twoway,prob_outer = credible_interval)
+
+g2<-ggplot(plot_data,aes(x=parameter,y=x,group=parameter,fill=parameter))+
+  geom_boxplot()+
+  stat_boxplot(geom = "errorbar",width = 0.15) +
+  scale_x_discrete(labels=c('autistic','non-autistic'))+
+  labs(y='posterior sampling (z)',x='')+
+  theme(legend.position = 'none')+
+  scale_fill_manual(name = 'parameter: stimulus',
+                    values = c(custom_group_color[1],custom_group_color[2]))
+
+#plot in markdown
+grid.arrange(g1,g2)
+
+
+#save to file
+tiff(file=paste0(project_path,"/output/figures/group_differences.tiff"), # create a file in tiff format in current working directory
+  width=3, height=6, units="in", res=300, compression='lzw') #define size and resolution of the resulting figure
+      
+grid.arrange(g1,g2)
+
+dev.off() #close operation and save file
+
+
+```
+
+# supplementary analyses
+## descriptives per participant 
+### descriptive statistics of dependent variables - per participant
+
+```{r descriptive statistics of dependent variables - per-participant, warnings=F}
+
+descriptive_table_data<-
+  
+  rbind(
+    psych::describe(df_timepoint$pd_res)[c('n','mean','sd','min','max','skew','kurtosis')],
+    psych::describe(df_timepoint$rpd_res_response.201)[c('n','mean','sd','min','max','skew','kurtosis')],
+    psych::describe(df_timepoint$rpd_res_response.202)[c('n','mean','sd','min','max','skew','kurtosis')],
+    psych::describe(df_timepoint$rpd_res_response.203)[c('n','mean','sd','min','max','skew','kurtosis')],
+    psych::describe(df_timepoint$rpd_res_response.204)[c('n','mean','sd','min','max','skew','kurtosis')],
+    psych::describe(df_timepoint$mmn.201)[c('n','mean','sd','min','max','skew','kurtosis')],
+    psych::describe(df_timepoint$mmn.202)[c('n','mean','sd','min','max','skew','kurtosis')],
+    psych::describe(df_timepoint$mmn.203)[c('n','mean','sd','min','max','skew','kurtosis')],
+    psych::describe(df_timepoint$mmn.204)[c('n','mean','sd','min','max','skew','kurtosis')]
+    )
+
+
+descriptive_table_data<-round(descriptive_table_data,3)
+
+  variable<-c('BPS',
+    'SEPR - standard','SEPR - pitch oddball',
+    'SEPR - length oddball','SEPR - pitch+length oddball',
+    'MMN - standard','MMN - pitch oddball',
+    'MMN - length oddball','MMN - pitch+length oddball')
+
+descriptive_table_data<-cbind(variable,descriptive_table_data)
+
+#produce table
+descriptive_table_format<-descriptive_table_data %>%
+    kbl(caption = "Per-participant level: Descriptive statistics of baseline pupil size (BPS), stimulus-evoked pupillary response (SEPR), and mismatch negativity (MMN)",row.names = F) %>%
+    kable_classic(full_width = F, html_font = "Cambria")
+
+descriptive_table_format
+
+save_kable(descriptive_table_format,file=paste0(project_path,'/output/supplements/descriptivestatistics_DV_perparticipant.html'))
+
+
+```
+
+### histograms of dependent variables - per participant
+
+```{r historgram of dependent variables - per participant}
+
+grid.arrange(
+  ggplot(df_timepoint,aes(x=pd))+geom_histogram(bins=30)+labs(x='',title='BPS (mm)'),
+  ggplot(df_timepoint,aes(x=gain_pcdm))+geom_histogram(bins=30)+labs(x='',title='neural gain (z)'),
+  ggplot(df_timepoint,aes(x=rpd_auc.201))+geom_histogram(bins=30)+labs(x='',title='SEPR - standard (mm)'),
+  ggplot(df_timepoint,aes(x=rpd_auc.202))+geom_histogram(bins=30)+labs(x='',title='SEPR - pitch oddball (mm)'),
+  ggplot(df_timepoint,aes(x=rpd_auc.203))+geom_histogram(bins=30)+labs(x='',title='SEPR - length oddball (mm)'),
+  ggplot(df_timepoint,aes(x=rpd_auc.204))+geom_histogram(bins=30)+labs(x='',title='SEPR - pitch+length oddball (mm)'),
+  ggplot(df_timepoint,aes(x=mmn.201))+geom_histogram(bins=30)+labs(x='',title='MMN - standard (uV)'),
+  ggplot(df_timepoint,aes(x=mmn.202))+geom_histogram(bins=30)+labs(x='',title='MMN - pitch oddball (uV)'),
+  ggplot(df_timepoint,aes(x=mmn.203))+geom_histogram(bins=30)+labs(x='',title='MMN - length oddball (uV)'),
+  ggplot(df_timepoint,aes(x=mmn.204))+geom_histogram(bins=30)+labs(x='',title='MMN - pitch+length oddball (uV)'),
+  ncol=2)
+
+#save to file
+tiff(file=paste0(project_path,"/output/supplements/histograms_dependentvariables_perparticipant.tiff"), # create a file in tiff format in current working directory
+  width=8, height=12, units="in", res=300, compression='lzw') #define size and resolution of the resulting figure
+
+grid.arrange(
+  ggplot(df_timepoint,aes(x=pd))+geom_histogram(bins=30)+labs(x='',title='BPS (mm)'),
+  ggplot(df_timepoint,aes(x=gain_pcdm))+geom_histogram(bins=30)+labs(x='',title='neural gain (z)'),
+  ggplot(df_timepoint,aes(x=rpd_auc.201))+geom_histogram(bins=30)+labs(x='',title='SEPR - standard (mm)'),
+  ggplot(df_timepoint,aes(x=rpd_auc.202))+geom_histogram(bins=30)+labs(x='',title='SEPR - pitch oddball (mm)'),
+  ggplot(df_timepoint,aes(x=rpd_auc.203))+geom_histogram(bins=30)+labs(x='',title='SEPR - length oddball (mm)'),
+  ggplot(df_timepoint,aes(x=rpd_auc.204))+geom_histogram(bins=30)+labs(x='',title='SEPR - pitch+length oddball (mm)'),
+  ggplot(df_timepoint,aes(x=mmn.201))+geom_histogram(bins=30)+labs(x='',title='MMN - standard (uV)'),
+  ggplot(df_timepoint,aes(x=mmn.202))+geom_histogram(bins=30)+labs(x='',title='MMN - pitch oddball (uV)'),
+  ggplot(df_timepoint,aes(x=mmn.203))+geom_histogram(bins=30)+labs(x='',title='MMN - length oddball (uV)'),
+  ggplot(df_timepoint,aes(x=mmn.204))+geom_histogram(bins=30)+labs(x='',title='MMN - pitch+length oddball (uV)'),
+  ncol=2)
+
+dev.off() #close operation and save file
+
+
+```
+
+
+
+
+
+
+## descriptives per trial
+### descriptive statistics of dependent variables - per trial
+
+```{r descriptive statistics of dependent variables - per-trial, warnings=F}
+
+descriptive_table_data<-
+  
+rbind(
+psych::describe(df_epoch$pd_res)[c('n','mean','sd','min','max','skew','kurtosis')],
+psych::describe(df_epoch$rpd_res_response[df_epoch$EventData=='201'])[c('n','mean','sd','min','max','skew','kurtosis')],
+psych::describe(df_epoch$rpd_res_response[df_epoch$EventData=='202'])[c('n','mean','sd','min','max','skew','kurtosis')],
+psych::describe(df_epoch$rpd_res_response[df_epoch$EventData=='203'])[c('n','mean','sd','min','max','skew','kurtosis')],
+psych::describe(df_epoch$rpd_res_response[df_epoch$EventData=='204'])[c('n','mean','sd','min','max','skew','kurtosis')],
+psych::describe(df_epoch$mmn[df_epoch$EventData=='201'])[c('n','mean','sd','min','max','skew','kurtosis')],
+psych::describe(df_epoch$mmn[df_epoch$EventData=='202'])[c('n','mean','sd','min','max','skew','kurtosis')],
+psych::describe(df_epoch$mmn[df_epoch$EventData=='203'])[c('n','mean','sd','min','max','skew','kurtosis')],
+psych::describe(df_epoch$mmn[df_epoch$EventData=='204'])[c('n','mean','sd','min','max','skew','kurtosis')]
+
+)
+
+
+descriptive_table_data<-round(descriptive_table_data,3)
+
+  variable<-c('BPS',
+    'SEPR - standard','SEPR - pitch oddball',
+    'SEPR - length oddball','SEPR - pitch+length oddball',
+    'MMN - standard','MMN - pitch oddball',
+    'MMN - length oddball','MMN - pitch+length oddball')
+
+descriptive_table_data<-cbind(variable,descriptive_table_data)
+
+#produce table
+descriptive_table_format<-descriptive_table_data %>%
+    kbl(caption = "Per-trial level: Descriptive statistics of baseline pupil size (BPS), stimulus-evoked pupillary response (SEPR), and mismatch negativity (MMN)",row.names = F) %>%
+    kable_classic(full_width = F, html_font = "Cambria")
+
+descriptive_table_format
+
+save_kable(descriptive_table_format,file=paste0(project_path,'/output/supplements/descriptivestatistics_DV_pertrial.html'))
+
+```
+
+
+
+### histograms of dependent variables - per trial
+
+```{r historgram of dependent variables - per trial}
+
+grid.arrange(
+  ggplot(df_trial,aes(x=pd))+geom_histogram(bins=30)+labs(x='',title='BPS (mm)'),
+  ggplot()+theme_void(),
+  ggplot(df_trial[df_trial$EventData=='201',],
+         aes(x=rpd_auc))+geom_histogram(bins=30)+labs(x='',title='SEPR - standard (mm)'),
+  ggplot(df_trial[df_trial$EventData=='202',],
+         aes(x=rpd_auc))+geom_histogram(bins=30)+labs(x='',title='SEPR - pitch oddball (mm)'),
+  ggplot(df_trial[df_trial$EventData=='203',],
+         aes(x=rpd_auc))+geom_histogram(bins=30)+labs(x='',title='SEPR - length oddball (mm)'),
+  ggplot(df_trial[df_trial$EventData=='204',],
+         aes(x=rpd_auc))+geom_histogram(bins=30)+labs(x='',title='SEPR - pitch+length oddball (mm)'),
+  ggplot(df_trial[df_trial$EventData=='201',],
+         aes(x=mmn))+geom_histogram(bins=30)+labs(x='',title='MMN - standard (uV)'),
+  ggplot(df_trial[df_trial$EventData=='202',],
+         aes(x=mmn))+geom_histogram(bins=30)+labs(x='',title='MMN - pitch oddball (uV)'),
+  ggplot(df_trial[df_trial$EventData=='203',],
+         aes(x=mmn))+geom_histogram(bins=30)+labs(x='',title='MMN - length oddball (uV)'),
+  ggplot(df_trial[df_trial$EventData=='204',],
+         aes(x=mmn))+geom_histogram(bins=30)+labs(x='',title='MMN - pitch+length oddball (uV)'),
+  ncol=2)
+
+#save to file
+tiff(file=paste0(project_path,"/output/supplements/histograms_dependentvariables_pertrial.tiff"), # create a file in tiff format in current working directory
+  width=8, height=12, units="in", res=300, compression='lzw') #define size and resolution of the resulting figure
+
+grid.arrange(
+  ggplot(df_trial,aes(x=pd))+geom_histogram(bins=30)+labs(x='',title='BPS (mm)'),
+  ggplot()+theme_void(),
+  ggplot(df_trial[df_trial$EventData=='201',],
+         aes(x=rpd_auc))+geom_histogram(bins=30)+labs(x='',title='SEPR - standard (mm)'),
+  ggplot(df_trial[df_trial$EventData=='202',],
+         aes(x=rpd_auc))+geom_histogram(bins=30)+labs(x='',title='SEPR - pitch oddball (mm)'),
+  ggplot(df_trial[df_trial$EventData=='203',],
+         aes(x=rpd_auc))+geom_histogram(bins=30)+labs(x='',title='SEPR - length oddball (mm)'),
+  ggplot(df_trial[df_trial$EventData=='204',],
+         aes(x=rpd_auc))+geom_histogram(bins=30)+labs(x='',title='SEPR - pitch+length oddball (mm)'),
+  ggplot(df_trial[df_trial$EventData=='201',],
+         aes(x=mmn))+geom_histogram(bins=30)+labs(x='',title='MMN - standard (uV)'),
+  ggplot(df_trial[df_trial$EventData=='202',],
+         aes(x=mmn))+geom_histogram(bins=30)+labs(x='',title='MMN - pitch oddball (uV)'),
+  ggplot(df_trial[df_trial$EventData=='203',],
+         aes(x=mmn))+geom_histogram(bins=30)+labs(x='',title='MMN - length oddball (uV)'),
+  ggplot(df_trial[df_trial$EventData=='204',],
+         aes(x=mmn))+geom_histogram(bins=30)+labs(x='',title='MMN - pitch+length oddball (uV)'),
+  ncol=2)
+
+dev.off() #close operation and save file
+
+
+```
+
+## group comparisons per-participant
+
+```{r group comparisons per participant - table}
+### table
+
+BPS_group<-c(summary(lm<-lm(scale(pd_res)~t1_diagnosis,df_timepoint))[['fstatistic']],
+  summary(lm<-lm(scale(pd_res)~t1_diagnosis,df_timepoint))[['coefficients']][2,c(1,2,4)])
+
+SEPR_201_group<-c(summary(lm<-lm(scale(rpd_res_response.201)~t1_diagnosis,df_timepoint))[['fstatistic']],
+             summary(lm<-lm(scale(rpd_res_response.201)~t1_diagnosis,df_timepoint))[['coefficients']][2,c(1,2,4)])
+SEPR_202_group<-c(summary(lm<-lm(scale(rpd_res_response.202)~t1_diagnosis,df_timepoint))[['fstatistic']],
+                  summary(lm<-lm(scale(rpd_res_response.202)~t1_diagnosis,df_timepoint))[['coefficients']][2,c(1,2,4)])
+SEPR_203_group<-c(summary(lm<-lm(scale(rpd_res_response.203)~t1_diagnosis,df_timepoint))[['fstatistic']],
+                  summary(lm<-lm(scale(rpd_res_response.203)~t1_diagnosis,df_timepoint))[['coefficients']][2,c(1,2,4)])
+SEPR_204_group<-c(summary(lm<-lm(scale(rpd_res_response.204)~t1_diagnosis,df_timepoint))[['fstatistic']],
+                  summary(lm<-lm(scale(rpd_res_response.204)~t1_diagnosis,df_timepoint))[['coefficients']][2,c(1,2,4)])
+
+MMN_201_group<-c(summary(lm<-lm(scale(mmn.201)~t1_diagnosis,df_timepoint))[['fstatistic']],
+                  summary(lm<-lm(scale(mmn.201)~t1_diagnosis,df_timepoint))[['coefficients']][2,c(1,2,4)])
+MMN_202_group<-c(summary(lm<-lm(scale(mmn.202)~t1_diagnosis,df_timepoint))[['fstatistic']],
+                  summary(lm<-lm(scale(mmn.202)~t1_diagnosis,df_timepoint))[['coefficients']][2,c(1,2,4)])
+MMN_203_group<-c(summary(lm<-lm(scale(mmn.203)~t1_diagnosis,df_timepoint))[['fstatistic']],
+                  summary(lm<-lm(scale(mmn.203)~t1_diagnosis,df_timepoint))[['coefficients']][2,c(1,2,4)])
+MMN_204_group<-c(summary(lm<-lm(scale(mmn.204)~t1_diagnosis,df_timepoint))[['fstatistic']],
+                  summary(lm<-lm(scale(mmn.204)~t1_diagnosis,df_timepoint))[['coefficients']][2,c(1,2,4)])
+
+group_comparison_table<-round(rbind(BPS_group,
+      SEPR_201_group,SEPR_202_group,SEPR_203_group,SEPR_204_group,
+      MMN_201_group,MMN_202_group,MMN_203_group,MMN_204_group),3)
+
+
+row_names<-c('BPS - across stimuli',
+            'SEPR - standards','SEPR - pitch oddball','SEPR - length oddball','SEPR - pitch+length oddball',
+            'MMN - standards','MMN - pitch oddball','MMN - length oddball','MMN - pitch+length oddball')
+
+group_comparison_table<-cbind(row_names,group_comparison_table)
+
+#produce table
+group_comparison_table_format<-group_comparison_table %>%
+  kbl(caption = "Per-participant level: Group comparisons of baseline pupil size (BPS), stimulus-evoked pupillary response (SEPR), and mismatch negativity (MMN)",
+      row.names = F, col.names = c('','F','df1','df2','b','std. error','p')) %>%
+  kable_classic(full_width = F, html_font = "Cambria")
+
+group_comparison_table_format
+
+save_kable(group_comparison_table_format,file=paste0(project_path,'/output/supplements/table_groupcomparison_perparticipant.html'))
+
+```
+
+## covariate effects on group comparisons per-partiicpant
+
+```{r covariate effects on group comparisons per participant}
+
+# significant covariate models ####
+#full model - PD
+lm<-lm(scale(pd_res)~t1_diagnosis+
+         scale(ageyrs)+scale(t1_piq)+sex+
+         as.factor(sampling_rate)+scale(center_dev)+scale(missing_data_trial)
+       ,df_timepoint)
+
+  ##supplements - full table
+  row_names<-c('intercept','group',
+               'age','perceptual IQ','sex',
+               'sampling rate','gaze center deviation','data quality',
+               'residuals')
+
+
+  table_data_model<-round(Anova(lm,type=3),3)
+  table_data_model<-cbind(row_names,table_data_model)
+
+  table_data_model
+
+  table_model<-table_data_model %>%
+    kbl(caption = "Per participant: Full Linear model of baseline pupil size (BPS) with all potential covariates",
+        col.names = c('','Sum Sq','df','F','p'),
+        row.names = F) %>%
+    kable_classic(full_width = F, html_font = "Cambria")
+
+  table_model
+
+  save_kable(table_model, file= paste0(project_path,'/output/supplements/table_linearmodel_BPS_allcovariates.html'))
+
+#significant covariate model - PD
+lm<-lm(scale(pd_res)~t1_diagnosis+
+         scale(ageyrs)+scale(center_dev)
+       ,df_timepoint)
+
+  ##supplements - full table
+  row_names<-c('intercept','group',
+               'age','gaze center deviation','residuals')
+
+
+  table_data_model<-round(Anova(lm,type=3),3)
+  table_data_model<-cbind(row_names,table_data_model)
+
+  table_data_model
+
+  table_model<-table_data_model %>%
+    kbl(caption = "Per participant: Reduced Linear model of baseline pupil size (BPS) with significant covariates",
+        col.names = c('','Sum Sq','df','F','p'),
+        row.names = F) %>%
+    kable_classic(full_width = F, html_font = "Cambria")
+
+  table_model
+
+  save_kable(table_model, file= paste0(project_path,'/output/supplements/table_linearmodel_BPS_signcovariates.html'))
+
+```
+
+
+## medication effect on main group comparsions
+
+```{r medication effect on group differences}
+
+#describe medication usage
+table(df_dem$med_use,df_dem$t1_diagnosis) #between groups
+chisq.test(df_dem$med_use,df_dem$t1_diagnosis)
+
+table(is.na(df_dem$t1_drugclass_2),df_dem$t1_diagnosis) # participants receiving more than one medication
+
+round(table(c(df_dem$t1_drugclass_1,df_dem$t1_drugclass_2,df_dem$t1_drugclass_3))/table(df_dem$med_use)[2],2) #percentage of type of medication
+
+#BPS
+lm<-lm(scale(pd_res)~t1_diagnosis,df_timepoint) #model as in results
+lm_med<-lm(scale(pd_res)~t1_diagnosis+med_use,df_timepoint) #model with medication as covariate
+anova(lm,lm_med)
+anova(lm_med)
+
+
+#BPS - dynamic main model
+lmm<-lmer(scale(pd_res)~EventData_epoch*t1_diagnosis*stats::poly(EventCounter_epoch,3)+scale(luminance_m)+
+              (1|id),data=df_epoch,REML=F)
+lmm_med<-lmer(scale(pd_res)~EventData_epoch*t1_diagnosis*stats::poly(EventCounter_epoch,3)+scale(luminance_m)+
+                med_use+
+              (1|id),data=df_epoch,REML=F)
+anova(lmm,lmm_med)
+anova(lmm_med)
+
+fixef(lmm_med)
+
+#SEPR - pupillary response by group - random intercept
+lmm_med<-lmer(scale(rpd_res_response)~EventData_epoch*t1_diagnosis*EventCounter_epoch+
+                med_use+
+            (1|id),data=df_epoch,REML=F)
+anova(lmm_med)
+
+#MMN - MMN by group - random intercept
+lmm_med<-lmer(scale(mmn)~EventData_epoch*t1_diagnosis*EventCounter_epoch+
+                med_use+
+            (1|id),data=df_epoch,REML=F)
+anova(lmm_med)
+
+```
+
+
+## scaling of BPS SEPR and MMN for demographic variables between groups
+
+### SEPR scaling with demographic variables
+
+```{r SEPR scaling with demographics between groups}
+
+  ###SCALING of pupillary response AUC WITH MAIN DEMOGRAPHIC VARIABLES ####
+
+  hist(df_epoch$ageyrs) ## pick 10 - 25 years
+  hist(df_epoch$t1_piq) ### IQ 80-135
+
+    labels <- c("201" = "standard", "202" = "pitch oddball", "203" = "length oddball", "204" = "pitch+length oddball")
+
+  #age
+  g1<-ggplot(df_epoch[df_epoch$ageyrs>=10 & df_epoch$ageyrs<=25,],aes(x=ageyrs,y=scale(rpd_res_response),group=interaction(EventData_epoch,t1_diagnosis),color=t1_diagnosis,fill=t1_diagnosis))+
+    geom_smooth(method='lm')+facet_grid(~EventData_epoch,labeller=labeller(EventData_epoch = labels))+
+    scale_color_manual(name = "group", labels = c("autistic", "non-autistic"),values = custom_group_color)+
+    scale_fill_manual(name = "group", labels = c("autistic", "non-autistic"),values = custom_group_color)+
+    labs(x='age (years)',y='')+
+    coord_cartesian(ylim = c(-0.05, 0.15))+
+    theme_bw()
+
+  #IQ
+  g2<-ggplot(df_epoch[df_epoch$t1_piq > 80 & df_epoch$t1_piq < 135,],aes(x=t1_piq,y=scale(rpd_res_response),group=interaction(EventData_epoch,t1_diagnosis),color=t1_diagnosis,fill=t1_diagnosis))+
+    geom_smooth(method='lm')+facet_grid(~EventData_epoch,labeller=labeller(EventData_epoch = labels))+
+    scale_color_manual(name = "group", labels = c("autistic", "non-autistic"),values = custom_group_color)+
+    scale_fill_manual(name = "group", labels = c("autistic", "non-autistic"),values = custom_group_color)+
+    labs(x='perceptual IQ',y='')+
+    coord_cartesian(ylim = c(-0.05, 0.15))+
+    theme_bw()
+
+
+    #summary functions
+    stat_sum_df <- function(fun, geom="crossbar", ...) {
+      stat_summary(fun.data=fun, geom=geom, width=0.2, ...)
+    }
+
+    stat_sum_single <- function(fun, geom="point", ...) {
+      stat_summary(fun=fun, geom=geom, size = 3, ...)
+    }
+
+  group_labels<-c("female","female","male","male")
+  g3<-ggplot(df_epoch,aes(x=interaction(t1_diagnosis,sex),y=scale(rpd_res_response),group=interaction(EventData_epoch,t1_diagnosis,sex),color=t1_diagnosis))+
+    stat_sum_df("mean_cl_normal", geom = "errorbar")+
+    stat_sum_single("mean")+
+    scale_color_manual(name = "group", labels = c("autistic", "non-autistic"),values = custom_group_color)+
+    facet_grid(~EventData_epoch,labeller=labeller(EventData_epoch = labels))+
+    scale_x_discrete(labels=group_labels)+
+    labs(x='biological sex',y='')+
+    coord_cartesian(ylim = c(-0.05, 0.15))+
+    theme_bw()
+
+  
+  grid.arrange(g1,g2,g3,nrow=3)
+  
+  
+  #save to file
+tiff(file=paste0(project_path,"/output/supplements/SEPR_scaling_withdemographics_between_groups.tiff"), # create a file in tiff format in current working directory
+  width=10, height=8, units="in", res=300, compression='lzw') #define size and resolution of the resulting figure
+
+  grid.arrange(g1,g2,g3,nrow=3,left='stimulus-evoked pupillary response (SEPR, z)')
+
+        
+dev.off() #close operation and save file
+
+```
+
+### BPS scaling with demographic variables
+
+```{r BPS scaling with demographics between groups}
+  ###SCALING of baseline pupil size WITH MAIN DEMOGRAPHIC VARIABLES ####
+
+  labels <- c("201" = "standard", "202" = "pitch oddball", "203" = "length oddball", "204" = "pitch+length oddball")
+  #age
+  g1<-ggplot(df_epoch[df_epoch$ageyrs>=10 & df_epoch$ageyrs<=25,],aes(x=ageyrs,y=pd_res,group=interaction(EventData_epoch,t1_diagnosis),color=t1_diagnosis,fill=t1_diagnosis))+
+    geom_smooth(method='lm')+facet_grid(~EventData_epoch,labeller=labeller(EventData_epoch = labels))+
+    scale_color_manual(name = "group", labels = c("autistic", "non-autistic"),values = custom_group_color)+
+    scale_fill_manual(name = "group", labels = c("autistic", "non-autistic"),values = custom_group_color)+
+    labs(x='age (years)',y='')+
+    theme_bw()
+
+  #IQ
+  g2<-ggplot(df_epoch[df_epoch$t1_piq > 80 & df_epoch$t1_piq < 135,],aes(x=t1_piq,y=pd_res,group=interaction(EventData_epoch,t1_diagnosis),color=t1_diagnosis,fill=t1_diagnosis))+
+    geom_smooth(method='lm')+facet_grid(~EventData_epoch,labeller=labeller(EventData_epoch = labels))+
+    scale_color_manual(name = "group", labels = c("autistic", "non-autistic"),values = custom_group_color)+
+    scale_fill_manual(name = "group", labels = c("autistic", "non-autistic"),values = custom_group_color)+
+    labs(x='perceptual IQ',y='')+
+    theme_bw()
+
+
+  #summary functions
+  stat_sum_df <- function(fun, geom="crossbar", ...) {
+    stat_summary(fun.data=fun, geom=geom, width=0.2, ...)
+  }
+
+  stat_sum_single <- function(fun, geom="point", ...) {
+    stat_summary(fun=fun, geom=geom, size = 3, ...)
+  }
+
+  group_labels<-c("female","female","male","male")
+  g3<-ggplot(df_epoch,aes(x=interaction(t1_diagnosis,sex),y=pd_res,group=interaction(EventData_epoch,t1_diagnosis,sex),color=t1_diagnosis))+
+    stat_sum_df("mean_cl_normal", geom = "errorbar")+
+    stat_sum_single("mean")+
+    scale_color_manual(name = "group", labels = c("autistic", "non-autistic"),values = custom_group_color)+
+    facet_grid(~EventData_epoch,labeller=labeller(EventData_epoch = labels))+
+    scale_x_discrete(labels=group_labels)+
+    labs(x='biological sex',y='')+
+    theme_bw()
+
+  grid.arrange(g1,g2,g3,nrow=3)
+  ####--> higher IQ and lower age in autistic females?
+
+      with(df_dem,by(t1_piq,interaction(t1_sex,t1_diagnosis),summary))
+      with(df_dem,by(t1_ageyrs,interaction(t1_sex,t1_diagnosis),summary))
+
+  
+    #save to file
+tiff(file=paste0(project_path,"/output/supplements/BPS_scaling_withdemographics_between_groups.tiff"), # create a file in tiff format in current working directory
+  width=10, height=8, units="in", res=300, compression='lzw') #define size and resolution of the resulting figure
+
+  grid.arrange(g1,g2,g3,nrow=3,left='baseline pupil size (mm)')
+
+        
+dev.off() #close operation and save file
+    
+      
+
+```
+
+### MMN scaling with demographic variables
+
+```{r MMN scaling with demographics between groups}
+  ###SCALING of MMN WITH MAIN DEMOGRAPHIC VARIABLES ####
+
+    labels <- c("201" = "standard", "202" = "pitch oddball", "203" = "length oddball", "204" = "pitch+length oddball")
+
+  #age
+  g1<-ggplot(df_epoch[df_epoch$ageyrs>=10 & df_epoch$ageyrs<=25,],aes(x=ageyrs,y=mmn,group=interaction(EventData_epoch,t1_diagnosis),color=t1_diagnosis,fill=t1_diagnosis))+
+    geom_smooth(method='lm')+facet_grid(~EventData_epoch,labeller=labeller(EventData_epoch = labels))+
+    scale_color_manual(name = "group", labels = c("autistic", "non-autistic"),values = custom_group_color)+
+    scale_fill_manual(name = "group", labels = c("autistic", "non-autistic"),values = custom_group_color)+
+    labs(x='age (years)',y='')+
+    theme_bw()
+
+  #IQ
+  g2<-ggplot(df_epoch[df_epoch$t1_piq > 80 & df_epoch$t1_piq < 135,],aes(x=t1_piq,y=mmn,group=interaction(EventData_epoch,t1_diagnosis),color=t1_diagnosis,fill=t1_diagnosis))+
+    geom_smooth(method='lm')+facet_grid(~EventData_epoch,labeller=labeller(EventData_epoch = labels))+
+    scale_color_manual(name = "group", labels = c("autistic", "non-autistic"),values = custom_group_color)+
+    scale_fill_manual(name = "group", labels = c("autistic", "non-autistic"),values = custom_group_color)+
+    labs(x='perceptual IQ',y='')+
+    theme_bw()
+
+
+  #summary functions
+  stat_sum_df <- function(fun, geom="crossbar", ...) {
+    stat_summary(fun.data=fun, geom=geom, width=0.2, ...)
+  }
+
+  stat_sum_single <- function(fun, geom="point", ...) {
+    stat_summary(fun=fun, geom=geom, size = 3, ...)
+  }
+
+  group_labels<-c("female","female","male","male")
+  g3<-ggplot(df_epoch,aes(x=interaction(t1_diagnosis,sex),y=mmn,group=interaction(EventData_epoch,t1_diagnosis,sex),color=t1_diagnosis))+
+    stat_sum_df("mean_cl_normal", geom = "errorbar")+
+    stat_sum_single("mean")+
+    scale_color_manual(name = "group", labels = c("autistic", "non-autistic"),values = custom_group_color)+
+    facet_grid(~EventData_epoch,labeller=labeller(EventData_epoch = labels))+
+    scale_x_discrete(labels=group_labels)+
+    labs(x='biological sex',y='')+
+    theme_bw()
+
+  grid.arrange(g1,g2,g3,nrow=3)
+  ####--> higher IQ and lower age in autistic females?
+
+  with(df_dem,by(t1_piq,interaction(t1_sex,t1_diagnosis),summary))
+  with(df_dem,by(t1_ageyrs,interaction(t1_sex,t1_diagnosis),summary))
+
+
+  #save to file
+tiff(file=paste0(project_path,"/output/supplements/MMN_scaling_withdemographics_between_groups.tiff"), # create a file in tiff format in current working directory
+  width=10, height=8, units="in", res=300, compression='lzw') #define size and resolution of the resulting figure
+
+  grid.arrange(g1,g2,g3,nrow=3,left='mismatch negativity (uV)')
+
+        
+dev.off() #close operation and save file
+
+
+
+
+
+```
+
+
+## linearity of effect of trial number (polynomial fits)
+
+```{r linearity BPS}
+
+###polynomial fit of trial counter
+  linear_fit<-lmer(scale(pd_res)~scale(EventCounter_epoch)+
+          (1|id),data=df_epoch,REML=F)
+
+  quadratic_fit<-lmer(scale(pd_res)~stats::poly(scale(EventCounter_epoch),2)+
+              (1|id),data=df_epoch,REML=F)
+
+  cubic_fit<-lmer(scale(pd_res)~stats::poly(scale(EventCounter_epoch),3)+
+               (1|id),data=df_epoch,REML=F)
+  
+  anova(linear_fit,quadratic_fit,cubic_fit)
+  
+  table_model_compare<-anova(linear_fit,quadratic_fit,cubic_fit)
+  
+  table_model_compare<-cbind(c('linear fit','quadratic fit','cubic fit'),table_model_compare)
+  
+  table_formatted<-table_model_compare %>%
+  kbl(caption = "Model comparison on the linearity of trial number on baseline pupil size (BPS)",
+      col.names = c('','number of parameters','AIC','BIC','log likelihood','deviance','Chi-squared','df','p-value'),
+      row.names = F) %>%
+  kable_classic(full_width = F, html_font = "Cambria")
+
+table_formatted
+
+save_kable(table_formatted, file=paste0(project_path,'/output/supplements/table_modelcomparison_linearity_BPS.html'))
+
+```
+
+```{r linearity SEPR}
+
+###polynomial fit of trial counter
+  linear_fit<-lmer(scale(rpd_res_response)~scale(EventCounter_epoch)+
+          (1|id),data=df_epoch,REML=F)
+
+  quadratic_fit<-lmer(scale(rpd_res_response)~stats::poly(scale(EventCounter_epoch),2)+
+              (1|id),data=df_epoch,REML=F)
+
+  cubic_fit<-lmer(scale(rpd_res_response)~stats::poly(scale(EventCounter_epoch),3)+
+               (1|id),data=df_epoch,REML=F)
+  
+  anova(linear_fit,quadratic_fit,cubic_fit)
+  
+  table_model_compare<-anova(linear_fit,quadratic_fit,cubic_fit)
+  
+  table_model_compare<-cbind(c('linear fit','quadratic fit','cubic fit'),table_model_compare)
+  
+  table_formatted<-table_model_compare %>%
+  kbl(caption = "Model comparison on the linearity of trial number on stimulus-evoked pupillary response (SEPR)",
+      col.names = c('','number of parameters','AIC','BIC','log likelihood','deviance','Chi-squared','df','p-value'),
+      row.names = F) %>%
+  kable_classic(full_width = F, html_font = "Cambria")
+
+table_formatted
+
+save_kable(table_formatted, file=paste0(project_path,'/output/supplements/table_modelcomparison_linearity_SEPR.html'))
+  
+  
+```
+
+```{r linearity MMN}
+
+###polynomial fit of trial counter
+  linear_fit<-lmer(scale(mmn)~scale(EventCounter_epoch)+
+          (1|id),data=df_epoch,REML=F)
+
+  quadratic_fit<-lmer(scale(mmn)~stats::poly(scale(EventCounter_epoch),2)+
+              (1|id),data=df_epoch,REML=F)
+
+  cubic_fit<-lmer(scale(mmn)~stats::poly(scale(EventCounter_epoch),3)+
+               (1|id),data=df_epoch,REML=F)
+  
+  anova(linear_fit,quadratic_fit,cubic_fit)
+  
+  table_model_compare<-anova(linear_fit,quadratic_fit,cubic_fit)
+  
+  table_model_compare<-cbind(c('linear fit','quadratic fit','cubic fit'),table_model_compare)
+  
+  table_formatted<-table_model_compare %>%
+  kbl(caption = "Model comparison on the linearity of trial number on mismatch negativity (MMN)",
+      col.names = c('','number of parameters','AIC','BIC','log likelihood','deviance','Chi-squared','df','p-value'),
+      row.names = F) %>%
+  kable_classic(full_width = F, html_font = "Cambria")
+
+table_formatted
+
+save_kable(table_formatted, file=paste0(project_path,'/output/supplements/table_modelcomparison_linearity_MMN.html'))
+
+```
+
+## full model tables
+
+```{r BPS full model LMM}
+
+#full model  - save to supplements      
+lmm_full<-lmer(scale(pd_res)~EventData_epoch*t1_diagnosis*stats::poly(EventCounter_epoch,3)+
+      scale(luminance_m)+
+      scale(ageyrs)+scale(t1_piq)+sex+
+      as.factor(sampling_rate)+scale(center_dev)+scale(missing_data_trial)+
+      (1|id),data=df_epoch)
+
+  plot(contrast(emmeans(lmm_full, ~ EventData_epoch| t1_diagnosis),'pairwise'))
+
+##supplements - full table
+  row_names<-c('stimulus (S)','group','task progression (TP)',
+               'video luminance',
+               'age','perceptual IQ','sex',
+               'sampling rate','gaze center deviation','data quality',
+               'S x group','S x TP','group x TP','S x group x TP')
+  
+  
+  table_data_model<-round(anova(lmm_full),3)
+  table_data_model<-cbind(row_names,table_data_model)
+  
+  table_data_model
+  
+  table_model<-table_data_model %>%
+    kbl(caption = "Linear mixed model: baseline pupil size (BPS) - task progression",
+        col.names = c('','Sum Sq','Mean Sq','df1','df2','F','p adjusted'),
+        row.names = F) %>%
+    kable_classic(full_width = F, html_font = "Cambria")
+  
+  
+  table_model
+  
+  save_kable(table_model, file= paste0(project_path,'/output/supplements/table_model_BPS.html'))
+
+```
+
+## Bayesian chains - convergence and stationarity of estimates
+
+```{r figure Bayesian models chain convergence stationarity}
+
+###load saved Bayeisan posterior estimates
+load(file=paste0(project_path,'/data/Bayesian_model_BPS_twoway.Rdata')) #draws_BPS_twoway
+load(file=paste0(project_path,'/data/Bayesian_model_BPS_supp.Rdata')) #draws_BPS_supp
+load(file=paste0(project_path,'/data/Bayesian_model_SEPR_threewayinteraction.Rdata')) #draws_SEPR_threeway
+load(file=paste0(project_path,'/data/Bayesian_model_MMN_threewayinteraction.Rdata')) #draws_MMN_threeway
+
+### for supplements
+
+#chain converge and stationary
+
+# #draws_BPS_twoway - chain converge and stationary
+var_names <- c("design_coef[1,1]" = "BPS_task_progression: autistic",
+               "design_coef[2,1]" = "BPS_task_progression: non-autistic") #define parameter names
+
+g1a<-mcmc_trace(draws_BPS_twoway, 
+           facet_args = list(labeller = labeller(parameter = as_labeller(var_names, label_parsed))))
+g1b<-mcmc_dens(draws_BPS_twoway, 
+           facet_args = list(labeller = labeller(parameter = as_labeller(var_names, label_parsed)))) 
+
+# #draws_BPS_supp - chain converge and stationary
+var_names <- c("design_coef[1,1]" = "BPS_sequence_position: autistic",
+               "design_coef[2,1]" = "BPS_sequence_position: non-autistic") #define parameter names
+
+g2a<-mcmc_trace(draws_BPS_supp, 
+           facet_args = list(labeller = labeller(parameter = as_labeller(var_names, label_parsed))))
+g2b<-mcmc_dens(draws_BPS_supp, 
+           facet_args = list(labeller = labeller(parameter = as_labeller(var_names, label_parsed)))) 
+
+# #draws_SEPR_threeway - chain converge and stationary
+var_names <- c("group_event_coefs[1,1]" = "SEPR_trend: autistic_standard",
+               "group_event_coefs[2,1]" = "SEPR_trend: non-autistic_standard",
+               "group_event_coefs[3,1]" = "SEPR_trend: autistic_pitch",
+               "group_event_coefs[4,1]" = "SEPR_trend: non-autistic_pitch",
+               "group_event_coefs[5,1]" = "SEPR_trend: autistic_length",
+               "group_event_coefs[6,1]" = "SEPR_trend: non-autistic_length",
+               "group_event_coefs[7,1]" = "SEPR_trend: autistic_pitch+length",
+               "group_event_coefs[8,1]" = "SEPR_trend: non-autistic_pitch+length") #define parameter names
+
+g3a<-mcmc_trace(draws_SEPR_threeway, 
+           facet_args = list(labeller = labeller(parameter = as_labeller(var_names, label_parsed)),nrow=1))
+g3b<-mcmc_dens(draws_SEPR_threeway, 
+           facet_args = list(labeller = labeller(parameter = as_labeller(var_names, label_parsed)),nrow=1)) 
+
+# #draws_MMN_threeway - chain converge and stationary
+var_names <- c("group_event_coefs[1,1]" = "MMN_trend: autistic_standard",
+               "group_event_coefs[2,1]" = "MMN_trend: non-autistic_standard",
+               "group_event_coefs[3,1]" = "MMN_trend: autistic_pitch",
+               "group_event_coefs[4,1]" = "MMN_trend: non-autistic_pitch",
+               "group_event_coefs[5,1]" = "MMN_trend: autistic_length",
+               "group_event_coefs[6,1]" = "MMN_trend: non-autistic_length",
+               "group_event_coefs[7,1]" = "MMN_trend: autistic_pitch+length",
+               "group_event_coefs[8,1]" = "MMN_trend: non-autistic_pitch+length") #define parameter names
+
+g4a<-mcmc_trace(draws_MMN_threeway, 
+           facet_args = list(labeller = labeller(parameter = as_labeller(var_names, label_parsed)),nrow=1))
+g4b<-mcmc_dens(draws_MMN_threeway, 
+           facet_args = list(labeller = labeller(parameter = as_labeller(var_names, label_parsed)),nrow=1)) 
+
+
+#extract legend
+g_legend<-function(x){
+  tmp <- ggplot_gtable(ggplot_build(x))
+  leg <- which(sapply(tmp$grobs, function(x) x$name) == "guide-box")
+  legend <- tmp$grobs[[leg]]
+  return(legend)}
+
+mylegend<-g_legend(g1a)
+
+#arrange figures
+g1<-grid.arrange(g1a+theme(legend.position = 'none'),g1b,top="BPS - task progression")
+g2<-grid.arrange(g2a+theme(legend.position = 'none'),g2b,top="BPS - sequence position")
+g3<-grid.arrange(g3a+theme(legend.position = 'none'),g3b,top="SEPR trend")
+g4<-grid.arrange(g4a+theme(legend.position = 'none'),g4b,top="MMN trend")
+
+
+g_figures<-grid.arrange(
+  grid.arrange(g1,g2,ncol=2),
+  g3,g4,
+  nrow=3)
+
+
+grid.arrange(g_figures,mylegend,ncol=2,widths=c(20,1))
+
+#save to file
+tiff(file=paste0(project_path,"/output/supplements/Bayesian_chains_convergence.tiff"), # create a file in tiff format in current working directory
+  width=25, height=15, units="in", res=300, compression='lzw') #define size and resolution of the resulting figure
+
+grid.arrange(g_figures,mylegend,ncol=2,widths=c(20,1))
+      
+dev.off() #close operation and save file
+
+
+
+```
+
+
+## luminance within task
+
+```{r}
+
+
+g1<-ggplot(df_luminance,
+       aes(x=trials,y=luminance_m),
+       color='darkblue')+
+  geom_smooth(aes(ymin=luminance_m-1.96*luminance_sd,
+                  ymax=luminance_m+1.96*luminance_sd),fill='lightblue',stat = "identity")+
+  geom_smooth(color='black',se=F)+
+  geom_vline(xintercept=1400)+
+  labs(x='trial number',y='relative luminance')
+
+#plot in markdown
+g1
+
+#save to file
+tiff(file=paste0(project_path,"/output/supplements/relative_luminance_stimulus_within_task.tiff"), # create a file in tiff format in current working directory
+     width=5, height=2.5, units="in", res=300, compression='lzw') #define size and resolution of the resulting figure
+
+g1
+
+dev.off()
+
+```
+
+
+## covariate associations with BPS, SEPR, MMN
+
+###BPS
+
+```{r covariate associations BPS}
+
+#full model  - save to supplements      
+lmm_full<-lmer(scale(pd_res)~EventData_epoch*t1_diagnosis*stats::poly(EventCounter_epoch,3)+
+      scale(luminance_m)+
+      scale(ageyrs)+scale(t1_piq)+sex+
+      as.factor(sampling_rate)+scale(center_dev)+scale(missing_data_trial)+
+      (1|id),data=df_epoch)
+
+summary(lmm_full)
+
+# luminance_eff<-cbind('video luminance',
+#                round(fixef(lmm_full)['scale(luminance_m)'],2),
+#                round(confint(lmm_full,parm = 'scale(luminance_m)'),2))
+# 
+# age_eff<-cbind('age (yrs)',
+#                round(fixef(lmm_full)['scale(ageyrs)'],2),
+#                round(confint(lmm_full,parm = 'scale(ageyrs)'),2))
+# 
+# samplingrate_eff<-confint(contrast(emmeans(lmm_full,~sampling_rate),
+#                                    'revpairwise'))[c('contrast','estimate','asymp.LCL','asymp.UCL')]
+# 
+# centerdev_eff<-cbind('gaze center deviation (%)',
+#                round(fixef(lmm_full)['scale(center_dev)'],2),
+#                round(confint(lmm_full,parm = 'scale(center_dev)'),2))
+# 
+# 
+# dquality_eff<-cbind('data quality / missing data (%)',
+#                round(fixef(lmm_full)['scale(missing_data_trial)'],2),
+#                round(confint(lmm_full,parm = 'scale(missing_data_trial)'),2))
+# 
+# 
+# cov_eff_data<-rbind(luminance_eff,
+#                     age_eff,
+#       c('sampling rate (300Hz vs. 120Hz)',round(samplingrate_eff[1,2:4],2)),
+#       centerdev_eff,
+#       dquality_eff)
+# 
+# 
+# cov_eff_table<-cov_eff_data %>%
+#     kbl(caption = "Covariate effects on baseline pupil size (BPS)",
+#         col.names = c('covariate','estimate','lower bound (2.5%)','upper bound (97.5%)'),
+#         row.names = F) %>%
+#     kable_classic(full_width = F, html_font = "Cambria")
+#   
+#   
+#   cov_eff_table
+#   
+#   save_kable(cov_eff_table, file= paste0(project_path,'/output/supplements/table_BPS_covariateeffects.html'))
+
+```
+
+###SEPR
+
+```{r covariate associations SEPR}
+
+#full model  - save to supplements      
+lmm_full<-lmer(scale(rpd_auc)~EventData*t1_diagnosis*stats::poly(EventCounter,3)+
+      scale(ageyrs)+scale(t1_piq)+sex+
+      as.factor(sampling_rate)+scale(center_dev)+scale(missing_data_trial)+
+      (1|subjects)+(1|wave),data=df_trial)
+
+
+dquality_eff<-cbind('missing data per trial (%)',
+               round(fixef(lmm_full)['scale(missing_data_trial)'],2),
+               round(confint(lmm_full,parm = 'scale(missing_data_trial)'),2))
+
+
+cov_eff_data<-rbind(dquality_eff)
+
+cov_eff_table<-cov_eff_data %>%
+    kbl(caption = "Covariate effects on stimulus-evoked pupillary response (SEPR)",
+        col.names = c('covariate','estimate','lower bound (2.5%)','upper bound (97.5%)'),
+        row.names = F) %>%
+    kable_classic(full_width = F, html_font = "Cambria")
+  
+  
+  cov_eff_table
+  
+  save_kable(cov_eff_table, file= paste0(project_path,'/output/supplements/table_SEPR_covariateeffects.html'))
+
+```
+
+###MMN
+
+```{r covariate associations MMN}
+
+#full model  - save to supplements      
+lmm_full<-lmer(scale(mmn)~EventData*t1_diagnosis*stats::poly(EventCounter,3)+
+      scale(ageyrs)+scale(t1_piq)+sex+
+      as.factor(sampling_rate)+scale(center_dev)+scale(missing_data_trial)+
+      (1|id),data=df_trial)
+
+
+age_eff<-cbind('age (yrs)',
+               round(fixef(lmm_full)['scale(ageyrs)'],2),
+               round(confint(lmm_full,parm = 'scale(ageyrs)'),2))
+
+
+dquality_eff<-cbind('missing data per trial (%)',
+               round(fixef(lmm_full)['scale(missing_data_trial)'],2),
+               round(confint(lmm_full,parm = 'scale(missing_data_trial)'),2))
+
+
+cov_eff_data<-rbind(age_eff,
+                    dquality_eff)
+
+cov_eff_table<-cov_eff_data %>%
+    kbl(caption = "Covariate effects on mismatch negativity (MMN)",
+        col.names = c('covariate','estimate','lower bound (2.5%)','upper bound (97.5%)'),
+        row.names = F) %>%
+    kable_classic(full_width = F, html_font = "Cambria")
+  
+  
+  cov_eff_table
+  
+  save_kable(cov_eff_table, file= paste0(project_path,'/output/supplements/table_MMN_covariateeffects.html'))
+
+```
+
+
+
+
+## moderation of BPS on SEPR and MMN interaction by group
+
+```{r moderation by BPS}
+
+#moderation of BPS on SEPR interaction with group
+  lmm_REML_BPS<-lmer(scale(rpd_auc)~EventData*t1_diagnosis*EventCounter+scale(pd_baseline)+
+                   (1|subjects)+(1|wave),data=df_trial)
+
+  anova(lmm_REML_BPS)
+  
+  
+  ##supplements - full table
+  row_names<-c('stimulus (S)','group','task progression (TP)',
+               'BPS',
+               'S x group','S x TP','group x TP','S x group x TP')
+  
+  
+  table_data_model<-round(anova(lmm_REML_BPS),3)
+  table_data_model<-cbind(row_names,table_data_model)
+  
+  table_data_model
+  
+  table_model<-table_data_model %>%
+    kbl(caption = "Linear mixed model: Moderation of group differences in dynamic stimulus-evoked pupillary response (SEPR) group differences by baseline pupil size (BPS)",
+        col.names = c('','Sum Sq','Mean Sq','df1','df2','F','p adjusted'),
+        row.names = F) %>%
+    kable_classic(full_width = F, html_font = "Cambria")
+  
+  
+  table_model
+  
+  save_kable(table_model, file= paste0(project_path,'/output/supplements/table_moderation_SEPR_by_BPS.html'))
+
+
+  #moderation of BPS on MMN interaction with group
+  lmm_REML_BPS<-lmer(scale(mmn)~EventData*t1_diagnosis*EventCounter+scale(pd_baseline)+
+                       (1|subjects)+(1|wave),data=df_trial)
+
+  anova(lmm_REML_BPS)
+
+  ##supplements - full table
+  row_names<-c('stimulus (S)','group','task progression (TP)',
+               'BPS',
+               'S x group','S x TP','group x TP','S x group x TP')
+  
+  
+  table_data_model<-round(anova(lmm_REML_BPS),3)
+  table_data_model<-cbind(row_names,table_data_model)
+  
+  table_data_model
+  
+  table_model<-table_data_model %>%
+    kbl(caption = "Linear mixed model: Moderation of group differences in dynamic mismatch negativity (MMN) by baseline pupil size (BPS)",
+        col.names = c('','Sum Sq','Mean Sq','df1','df2','F','p adjusted'),
+        row.names = F) %>%
+    kable_classic(full_width = F, html_font = "Cambria")
+  
+  
+  table_model
+  
+  save_kable(table_model, file= paste0(project_path,'/output/supplements/table_moderation_MMN_by_BPS.html'))
+
+  
+```
+
+
+## intraclass correaltion of the dependent variables
+
+```{r ICC_of_dependent_variables}
+
+#select only individuals that have both waves
+subjects_with_both_waves<-df_dem$subjects[df_dem$timepoints=='wave1+2']
+df_trial_wave12<-df_trial[df_trial$subjects %in% subjects_with_both_waves,]
+
+#BPS
+baseline_pd_wave1<-with(df_trial_wave12[df_trial_wave12$wave=='wave1',],aggregate(pd_baseline,by=list(subjects),FUN=mean,na.rm=T))
+baseline_pd_wave2<-with(df_trial_wave12[df_trial_wave12$wave=='wave2',],aggregate(pd_baseline,by=list(subjects),FUN=mean,na.rm=T))
+names(baseline_pd_wave1)<-c('subjects','wave1')
+names(baseline_pd_wave2)<-c('subjects','wave2')
+
+baseline_pd_waves<-merge(baseline_pd_wave1,baseline_pd_wave2,by='subjects')
+
+cor.test(baseline_pd_waves$wave1,baseline_pd_waves$wave2)
+
+psych::ICC(baseline_pd_waves[,-1])
+###--> ICC: 0.88 [0.81, 0.93]
+
+
+#SEPR
+rpd204_wave1<-with(df_trial_wave12[df_trial_wave12$EventData_epoch=='204' & df_trial_wave12$wave=='wave1',],aggregate(rpd_auc.204,by=list(subjects),FUN=mean,na.rm=T))
+rpd204_wave2<-with(df_trial_wave12[df_trial_wave12$EventData_epoch=='204' & df_trial_wave12$wave=='wave2',],aggregate(rpd_auc.204,by=list(subjects),FUN=mean,na.rm=T))
+
+names(rpd204_wave1)<-c('subjects','wave1')
+names(rpd204_wave2)<-c('subjects','wave2')
+
+rpd_waves<-merge(rpd204_wave1,rpd204_wave2,by='subjects')
+
+cor.test(rpd_waves$wave1,rpd_waves$wave2)
+##--> r =.23
+
+psych::ICC(rpd_waves[,-1])
+###--> ICC: 0.37 [-0.01, 0.60]
+
+
+names(df_timepoint)
+
+#NG
+gain_wave1<-with(df_timepoint[df_timepoint$wave=='wave1',],aggregate(gain_pcdm,by=list(subjects),FUN=mean,na.rm=T))
+gain_wave2<-with(df_timepoint[df_timepoint$wave=='wave2',],aggregate(gain_pcdm,by=list(subjects),FUN=mean,na.rm=T))
+
+names(gain_wave1)<-c('subjects','wave1')
+names(gain_wave2)<-c('subjects','wave2')
+
+gain_waves<-merge(gain_wave1,gain_wave2,by='subjects')
+
+cor.test(gain_waves$wave1,gain_waves$wave2)
+##--> r =.23
+
+psych::ICC(gain_waves[,-1])
+###--> ICC: 0.37 [0.02, 0.59]
+
+```
+
+For participants with both measurement timepoints, we estimated a relative stability of BPS (intraclass correlation, ICC = 0.88 [0.81, 0.93]), while SEPR (ICC = 0.37 [-0.01, 0.60]) and NG (ICC = 0.37 [0.02, 0.59]) were variable across timepoints. EEG data was only available at one timepoint. 
+
+
+

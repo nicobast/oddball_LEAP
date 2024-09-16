@@ -787,8 +787,6 @@ table(df_dem$timepoints)
 ###--> n=88 only wave 2
 ###--> n=88 wave 1 & wave 2
 
-
-
 ###- ADD sensory subgroups (see Tillmann, 2021) ####
 df_ssp<-read_excel(paste0(home_path,"/PowerFolders/data_LEAP/LEAP_t1_sensorysubgroupsTILLMANN.xlsx"))
 df_dem<-merge(df_dem,df_ssp,by='subjects')

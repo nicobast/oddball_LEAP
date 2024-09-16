@@ -1,0 +1,2252 @@
+---
+title: "data_preprocessing_oddball_leap"
+author: "Nico Bast"
+date: "`r Sys.Date()`"
+output:
+  html_document:
+    toc: yes
+    toc_float: yes
+    number_sections: yes
+    theme: cerulean
+    code_folding: hide
+  word_document:
+    toc: yes
+editor_options:
+  chunk_output_type: console
+---
+
+# SETUP
+
+- specify location of data = data_path
+- load required packages
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+#required packages
+require(data.table) #fread uses parallelization and thus mucd faster than read.csv
+require(readxl) # read demographics data in Excel format
+require(pbapply) # progress bar for apply functions
+require(zoo) #na.approx
+require(data.table) #rbindlist - fast row binding of lists
+require(MatchIt) #matching
+
+
+require(ggplot2)
+theme_set(theme_bw())
+require(wesanderson)
+
+custom_condition_colors <- wes_palette('FantasticFox1',5,type='discrete')[2:5]
+  
+
+# require(mice) #imputation of clincial data
+# require(RColorBrewer) #color palettes
+# require(MatchIt) #matching
+# require(lme4) #mixed models
+# require(lmerTest)
+# require(emmeans)
+# require(ggplot2) #visualization
+# require(gridExtra)
+# require(DescTools) #AUC function
+# require(performance) #r²_nakagawa - marginalized and conditionalk R²
+
+#detect system
+ifelse(Sys.info()['sysname']=='Linux',
+       home_path<-'~',
+       home_path<-'C:/Users/Nico')
+
+
+project_path<-getwd()
+#project_path<-"C:/Users/nico/PowerFolders/project_oddball_LEAP"
+
+##search for the data
+data_path<-'Z:/nico/backup_data/data_AIMS/mismatch_negativity/ET_data'
+
+#identify relevant data files - eye tracking
+individual_data_files<-list.files(data_path,recursive=T,full.names=T)
+individual_event_files<-individual_data_files[grepl('session_events.csv',
+                                                    individual_data_files)]
+individual_gaze_data_files<-individual_data_files[grepl('session_gaze_data.csv',
+                                                        individual_data_files)]
+
+#only participants with gaze and eventdata
+participants_with_gaze_and_events<-substr(individual_gaze_data_files,nchar(data_path)+2,nchar(data_path)+19) %in% substr(individual_event_files,nchar(data_path)+2,nchar(data_path)+19)
+individual_gaze_data_files<-individual_gaze_data_files[participants_with_gaze_and_events]
+
+#user-defined functions - rename a variable at position 
+fun_rename<-function(x,variable_position,new_name){
+  names(x)[variable_position]<-new_name
+  return(x)}
+
+
+```
+
+# DATA INFO
+
+INFO ON DATA STRUCTURE
+ These are the event codes used for marking up the EEG in the MMN task:
+- STD	201
+- DEV_FREQ	202
+- DEV_DUR	203
+- DEV_COMB	204
+
+In the eye tracking data these become {'EEG_EVENT', XXX}, e.g. {'EEG_EVENT', 201} for the standards.
+
+You can get these from the session_events.csv or from the eventBuffer.mat files -- the data is the same, so you can pick whatever format works best for you.
+
+Each event has a timestamp. The "RemoteTime" column in the session_events.csv matches with the column of the same name in session_gaze_data.csv. Likewise in the mat files, you'll find the timestamp in eventBuffer.mat links to that in timeBuffer.mat.
+
+# Read data and early preprocessing
+
+- read data and match gaze to events
+- takes 2.5 hours on 64gb on recent Ryzen 5950k
+- saved as file here: "Z:\nico\backup_data\data_AIMS\mismatch_negativity\mmn_leap_merged"
+
+- early preprocessing on loading
+  - remove implausible timestamps
+  - create EventCounter variable
+  - retreive ID variable
+
+```{r read data, eval=FALSE}
+
+#empty list to fill with data
+df_list<-list()
+start<-Sys.time()
+
+for(participant in 1:length(individual_event_files)){
+
+  #testing
+  #participant<-sample(1:length(individual_event_files),1)
+
+#read_data
+events<-fread(individual_event_files[participant],sep=',',header=T,fill=T,integer64='numeric') #large data is converted to numeric
+et_data<-fread(individual_gaze_data_files[participant],sep=',',header=T,fill=T)
+print(paste('read file nr:',participant))
+
+#remove implausible timestamps
+events<-events[events$RemoteTime>=0,]
+
+#reduce events to relevant task events - only retain oddball data
+  # events<-events[grepl('SCREENFLASH',events$Event) |
+  #                  grepl('BREAK',events$Event) |
+  #                    (grepl('EEG_EVENT',events$Event) & events$EventData %in% c('201','202','203','204'))]
+events<-events[grepl('EEG_EVENT',events$Event) & events$EventData %in% c('201','202','203','204')]
+
+#create empty array of event data to fill with loop
+na_array_length_data<-as.numeric(rep(NA,nrow(et_data)))
+eventlog<-data.frame(Event=na_array_length_data,
+                     EventData=na_array_length_data)
+
+#create an event counter
+events$EventCounter<-seq_along(events$Event)
+
+  #matching loop
+  for(row_number in 1:nrow(events)){
+  which_event<-which(et_data[,'RemoteTime']>=as.numeric(events[row_number,'RemoteTime']) & et_data[,'RemoteTime']<as.numeric(events[row_number+1,'RemoteTime']))
+  eventlog[which_event,'Event']<-events[row_number,'Event']
+  eventlog[which_event,'EventData']<-events[row_number,'EventData']
+  eventlog[which_event,'EventCounter']<-events[row_number,'EventCounter']
+
+  #print(paste('read:',row_number))
+  }
+
+#concatenate et data and events
+et_data<-data.frame(et_data,eventlog)
+
+#retrieve id
+length_pic<-12
+id<-substr(individual_event_files[participant],nchar(individual_event_files[participant])-length_pic-nchar("session_events.csv"),nchar(individual_event_files[participant])-nchar("session_events.csv")-nchar('/'))
+wave<-substr(individual_event_files[participant],nchar(individual_event_files[participant])-length_pic-nchar("session_events.csv")-nchar('waveX')-nchar('/'),nchar(individual_event_files[participant])-length_pic-nchar("session_events.csv")-nchar('/')*2)
+individual_id<-paste(id,wave,sep='_')
+
+#write to list
+df_list[[participant]]<-et_data
+names(df_list)[participant]<-individual_id
+print(paste('processed:',individual_id))
+
+}
+Sys.time()-start ###--> 2.5 hours
+
+# save(df_list, file='C:/Users/nico/Desktop/mmn_leap_merged_24012023') #save temp on NAS
+#save(df_list, file='C:/Users/nico/Desktop/mmn_leap_merged_03072024')
+
+```
+
+# remove unnecessary data
+
+- drops 3D information in raw data
+- drops variable Event that always is "EEG_EVENT" 
+
+```{r, eval=FALSE}
+
+## -- drop unecessary data --> subsequent preprocessing requires far less RAM####
+fun_required_necessary_data<-function(x){
+
+  #drop raw eye tracking data
+  x<-x[,!(grepl('.3D.',names(x)))]
+  x<-x[,!names(x)=='Event']
+  x<-x[,!names(x)=='TriggerSignal']
+  return(x)
+
+}
+
+df_list<-pblapply(df_list,fun_required_necessary_data)
+
+```
+
+# delete empty data sets
+
+- removes participants without any data
+- removes 7 of 350
+
+```{r, eval=FALSE}
+
+#### remove participatns without MMN data ####
+which(sapply(df_list,nrow)==0)
+df_list<-df_list[sapply(df_list,nrow)!=0]
+
+```
+
+# create variables
+
+## Create timestamp variable
+
+- ts = time in experiment
+- might be redundant for analysis
+
+```{r, eval=FALSE}
+
+#create long format variable: ts (in seconds format)
+ts<-pblapply(df_list,function(x){x<-x$RemoteTime})
+ts<-pblapply(ts,function(x){abs(head(x,n=1)-x)/1000000})
+
+#add ts and change name of the variable
+df_list<-pbmapply(cbind,df_list,ts,SIMPLIFY = FALSE) #simplify needs to be in capital letters
+df_list<-pblapply(df_list,fun_rename,variable_position=ncol(df_list[[1]]),new_name='ts') #rename LAST variabel to ts
+
+rm(ts)
+
+```
+
+## create ID variable
+
+```{r, eval=FALSE}
+
+id_list<-names(df_list)
+id<-pbmapply(function(x,y){rep(x,nrow(y))},id_list,df_list,SIMPLIFY=FALSE)
+df_list<-pbmapply(cbind,df_list,id,SIMPLIFY = FALSE) #simplify needs to be in capital letters
+df_list<-pblapply(df_list,fun_rename,variable_position=ncol(df_list[[1]]),new_name='id') #rename LAST variabel to ts
+
+rm(id)
+
+```
+
+## create timestamp in trial variable (ts_trial)
+
+- ts_trial refers to timestamps within trials
+- this differs between different sampling rates (120Hz and 300Hz)
+- takes 3 minutes
+
+```{r, eval=FALSE}
+
+fun_define_trials<-function(single_participant){
+
+  # #create index for these new trials
+  index_trial<-single_participant[,'EventCounter']
+
+  #sequence over each new trial
+  split_list<-split(single_participant,f=list(index_trial))
+  ts_event<-lapply(split_list,function(x){seq_along(x$EventCounter)})
+
+  #unlist
+  single_participant<-rbindlist(split_list)
+  ts_event<-unlist(ts_event)
+
+  #add index and sequence data to list
+  single_participant<-data.frame(single_participant,ts_event)
+
+  return(single_participant)
+}
+
+df_list<-pblapply(df_list,fun_define_trials)
+
+saveRDS(df_list, file='C:/Users/nico/Desktop/mmn_leap_merged_04072024.Rds', compress=F)
+
+```
+
+# epoch data 
+
+- epoch number and ts_epoch
+- epoch chosen as 8 trials, min. 4 seconds per epoch
+- added in July 2024, proceeded with epoched data
+
+--> now we have two data sets:
+  - df_list - split by trials (currently not further preprocessed, commented out)
+  - df_list_epoch - split by epochs (also contains trial information)
+
+```{r, eval=FALSE}
+
+start<-Sys.time()
+
+#define epoch length (here 8 trials, min 4 seconds)
+epoch_length<-8
+
+#single_set<-df_list[[3]]
+
+###function steps
+fun_define_epoch<-function(single_set){
+
+  ## define trial sequence: basically every available trial
+    trial_sequence_start<-seq(1,max(single_set$EventCounter,na.rm=T))
+    
+  ## create list based on trial sequence = epoch, returns epoch_list
+    epoch_list<-list()
+    for (n in trial_sequence_start) {
+      epoch_list[[n]]<-single_set[single_set$EventCounter>=n
+                                  & single_set$EventCounter<n+epoch_length-1,]
+
+      ##debugging:
+      #print(n/max(trial_sequence_start))
+    }
+    
+  
+  ##create variables for epochs  
+  # timestamp for epoch
+  ts_epoch<-lapply(epoch_list,
+                   function(x){seq_along(x$EventCounter)})
+  # Event Counter for epoch
+  EventCounter_epoch<-lapply(epoch_list,
+                             function(x){rep(head(x$EventCounter,1),nrow(x))})
+  # EventData for epoch 
+  EventData_epoch<-lapply(epoch_list,
+                          function(x){rep(head(x$EventData,1),nrow(x))})
+  
+  
+  ##unlist
+  single_participant<-rbindlist(epoch_list)
+  ts_epoch<-unlist(ts_epoch)
+  EventCounter_epoch<-unlist(EventCounter_epoch)
+  EventData_epoch<-unlist(EventData_epoch)
+  
+  ##concatenate
+  single_participant<-data.frame(single_participant,
+                                 ts_epoch,
+                                 EventCounter_epoch,
+                                 EventData_epoch)
+  
+  ##return single participant
+  return(single_participant)
+  
+  }
+
+df_list_epoch<-pblapply(df_list,fun_define_epoch)
+
+rm(epoch_list,epoch_length)
+
+Sys.time()-start ###--> 4 hours
+
+
+  # #testing
+  # 
+  # ggplot(single_participant,aes(x=ts_epoch,y=Left.Diameter,color=EventData_epoch))+
+  #   geom_smooth()+xlim(c(0,1200))
+  # 
+  # table(single_participant$EventData_epoch)
+  # hist(single_participant$EventCounter_epoch)
+  # hist(single_participant$ts_epoch)
+
+saveRDS(df_list_epoch, file = "C:/Users/nico/Desktop/mmn_leap_epoched_04072024.Rds", compress = F) #uncompressed is way faster to save
+
+
+```
+
+## WORK IN PROGRESS - load epoched data
+
+```{r, eval=T}
+
+df_list_epoch<-readRDS("C:/Users/nico/Desktop/mmn_leap_epoched_04072024.Rds")
+
+
+## -- drop unecessary data --> subsequent preprocessing requires far less RAM####
+fun_required_necessary_data<-function(x){
+
+  #drop raw eye tracking data
+  x<-x[,!(grepl('.3D.',names(x)))]
+  x<-x[,!names(x)=='Event']
+  x<-x[,!names(x)=='TriggerSignal']
+  return(x)
+
+}
+
+##drop trigger Signal variable
+df_list_epoch<-pblapply(df_list_epoch,fun_required_necessary_data)
+
+
+```
+
+## WORK in Progress - load trial data
+
+```{r, eval=F}
+
+df_list<-readRDS('C:/Users/nico/Desktop/mmn_leap_merged_04072024.Rds')
+
+```
+
+## estimate frequency and create time variable within trial and epoch
+
+### in epoched data
+
+```{r, eval=T}
+
+# in epoched data
+frequency_rate<-pbsapply(df_list_epoch,function(x){median(diff(x$ts),na.rm=T)})
+frequency_rate<-ifelse(round(frequency_rate,3)==0.003,0.003333,
+                      ifelse(round(frequency_rate,3)==0.008,0.008333,NA))
+
+fun_define_time_event_epoch<-function(x,y){
+
+  frequency_rate_i<-rep(y,nrow(x))
+  x[,'frequency_rate']<-frequency_rate_i
+  x[,'time_event']<-(x$ts_event-1)*x$frequency_rate
+  x[,'time_epoch']<-(x$ts_epoch-1)*x$frequency_rate
+  return(x)
+
+}
+
+df_list_epoch<-pbmapply(fun_define_time_event_epoch,
+                        x=df_list_epoch,y=frequency_rate, SIMPLIFY = F)
+
+rm(frequency_rate)
+
+```
+
+### in trial data
+
+```{r, eval=F}
+
+# in trial split data
+frequency_rate<-pbsapply(df_list,function(x){median(diff(x$ts),na.rm=T)})
+frequency_rate<-ifelse(round(frequency_rate,3)==0.003,0.003333,
+                      ifelse(round(frequency_rate,3)==0.008,0.008333,NA))
+
+fun_define_time_event_trials<-function(x,y){
+
+  frequency_rate_i<-rep(y,nrow(x))
+  x[,'frequency_rate']<-frequency_rate_i
+  x[,'time_event']<-(x$ts_event-1)*x$frequency_rate
+  return(x)
+
+}
+
+df_list<-pbmapply(fun_define_time_event_trials,
+                  x=df_list,y=frequency_rate, SIMPLIFY = F)
+rm(frequency_rate)
+```
+
+## data summary
+
+```{r, eval=F}
+
+# #testing
+# single_participant<-df_list_epoch[[101]]
+# hist(single_participant$ts_event)
+# hist(single_participant$ts_epoch)
+# hist(single_participant$EventCounter_epoch)
+# table(single_participant$EventData_epoch)
+
+#mean of 30k data points per participant
+hist(sapply(df_list,nrow))
+#most participants have ~1399 trials
+summary(sapply(df_list,function(x){length(unique(x$EventCounter))}))
+#number of measurements - 343 (04.07.2024)
+paste('date:',paste(Sys.Date()),',individual measurements: n=',length(df_list))
+
+
+#mean of 200k data points per participant
+hist(sapply(df_list_epoch,nrow))
+#most participants have ~1399 trials
+summary(sapply(df_list_epoch,function(x){length(unique(x$EventCounter))}))
+#number of measurements - 343 (04.07.2024)
+paste('date:',paste(Sys.Date()),',individual measurements: n=',length(df_list_epoch))
+
+```
+
+# gaze preprocessing
+
+-estimate gaze position
+-estimate center deviation
+-also drops raw gaze position data for left and right eye
+
+## load gaze position function
+
+```{r, eval=T}
+
+#-- estimate gaze position + calculate center deviation
+fun_gaze_position<-function(single_participant){
+
+  attach(single_participant)
+  #exclude implausible values
+  xl <- ifelse((Left.x<0|Left.x>1), NA, Left.x)
+  xr <- ifelse((Right.x<0|Right.x>1), NA, Right.x)
+  yl <- ifelse((Left.y<0|Left.y>1), NA, Left.y)
+  yr <- ifelse((Right.y<0|Right.y>1), NA, Right.y)
+  #take offset between left and right into account
+  x.offset<-xl-xr
+  x.offset<-na.approx(x.offset,rule=2)
+  y.offset<-yl-yr
+  y.offset<-na.approx(y.offset,rule=2)
+  #mean gaze across both eyes
+  xl <- ifelse(is.na(xl)==FALSE, xl, xr+x.offset)
+  xr <- ifelse(is.na(xr)==FALSE, xr, xl-x.offset)
+  yl <- ifelse(is.na(yl)==FALSE, yl, yr+y.offset)
+  yr <- ifelse(is.na(yr)==FALSE, yr, yl-y.offset)
+  gazepos.x<-(xl+xr)/2
+  gazepos.y<-(yl+yr)/2
+
+  #remove outside screen
+  gazepos.x<-ifelse(gazepos.x>1 | gazepos.x<0,NA,gazepos.x)
+  gazepos.y<-ifelse(gazepos.y>1 | gazepos.y<0,NA,gazepos.y)
+
+  #estimate center deviation
+  center_deviation<-sqrt((gazepos.x-0.5)^2 + (gazepos.y-0.5)^2)
+
+  single_participant[,'gazepos.x']<-gazepos.x
+  single_participant[,'gazepos.y']<-gazepos.y
+  single_participant[,'center_dev']<-center_deviation
+  
+  single_participant<-single_participant[,!names(single_participant) %in% c(
+    'Left.x','Left.y','Right.x','Right.y')]
+
+  detach(single_participant)
+  return(single_participant)
+}
+
+```
+
+## in epoched data
+
+```{r, eval=T}
+
+df_list_epoch<-pblapply(df_list_epoch,fun_gaze_position)
+
+```
+
+## in trial data
+
+```{r, eval=F}
+
+df_list<-pblapply(df_list,fun_gaze_position)
+
+```
+
+# pupil preprocessing
+
+## load  blink correction function
+
+```{r load blink fun , eval=T}
+
+#blink correction function
+fun_blink_cor <- function(signal,lower_threshold,upper_threshold,samples_before,samples_after) {
+    #change NA to 999 for rle()-function
+    findna <- ifelse(is.na(signal),999,signal)
+    #find blinks:
+    #output of rle(): how many times values (NA) are repeated
+    repets <- rle(findna)
+    #stretch to length of PD vector for indexing
+    repets <- rep(repets[["lengths"]], times=repets[["lengths"]])
+    #difference between two timestamps~3.33ms -> 75/3.333=22.5 -> wenn 23 Reihen PD=NA, dann blink gap
+    #if more than 150ms (45 rows) of NA, missing data due to blink unlikely
+    #dummy coding of variables (1=at least 23 consecutive repetitions, 0=less than 23 repetitions)
+    repets <- ifelse(repets>=lower_threshold & repets<=upper_threshold, 1, 0)
+    #exclude cases where other values than NA (999) are repeated >=23 times by changing dummy value to 0:
+    repets[findna!=999 & repets==1] <- 0
+    #gives out where changes from 0 to 1 (no NA at least 23xNA) or 1 to 0 (23x NA to no NA) appear
+    changes <- c(diff(repets),0)
+    #define start (interval before blink/missing data)
+    changes.start<-which(changes==1) #where NA-sequence starts
+    #gives out row numbers of NA (blink) and previous 8 frames
+    start.seq<-unlist(lapply(changes.start, function(x) {seq(max(x-(samples_before-1),1), x)}))
+    repets[start.seq]<-1
+    #define end (interval after blink/missing data)
+    changes.end<-which(changes==-1)+1 #where NA.sequence ends
+    #gives out row numbers of NA (blink) and subsequent 8 frames
+    end.seq<-unlist(lapply(changes.end, function(x) {seq(x, min(x+(samples_before-1),length(repets)))}))
+    repets[end.seq]<-1
+    #replace PD data in blink interval (start to end) with NA
+    signal[repets==1]<-NA
+    return(signal)
+  }
+
+
+```
+
+## pupil preprocessing 
+
+- see Kret & Sjak-Shie 2018
+
+### in epoched data
+
+- uses a different baseline length cutoff == 500ms
+- uses time_epoch as reference
+
+```{r epoched preprocessing, eval=T}
+
+#define parameters for pd preprocessing function
+  constant<-3 ##--> speed  higher than constant * median change is excluded - MAD calculation
+  pd_lowest_plausible<-2
+  pd_highest_plausible<-8
+  interpolation_span<-100 #in ms
+  deletion_span<-25
+  shortest_blink<-75 #measured in ms
+  longest_blink<-250 #measured in ms
+  smooth.length<-150 #measured in ms
+  baseline_pd_cutoff<-500 #when to measure baseline pd
+  
+#pupil preprocessing function
+func_pd_preprocess<-function(x){
+
+  #debugging
+  #print(paste(head(x$id,1),head(x$EventCounter,1)))
+  
+  #define variables
+  Left_Diameter<-x$Left.Diameter
+  Right_Diameter<-x$Right.Diameter
+  RemoteTime<-x$RemoteTime #assumes to be in millisecond format
+  time_span<-head(x$frequency_rate,1)*1000 #in ms
+  
+  # STEP 1 - exclude invalid data ####
+  pl <- ifelse((Left_Diameter<pd_lowest_plausible|
+                  Left_Diameter>pd_highest_plausible), NA, Left_Diameter)
+  pr <- ifelse((Right_Diameter<pd_lowest_plausible|
+                  Right_Diameter>pd_highest_plausible), NA, Right_Diameter)
+  
+  # STEP 2 - filtering ####
+  ## A) normalized dilation speed, take into account time jumps with Remotetimestamps: ####
+  #maximum change in pd compared to last and next pd measurement
+  #Left
+  pl.speed1<-diff(pl)/diff(RemoteTime) #compared to last
+  pl.speed2<-diff(rev(pl))/diff(rev(RemoteTime)) #compared to next
+  pl.speed1<-c(NA,pl.speed1)
+  pl.speed2<-c(rev(pl.speed2),NA)
+  pl.speed<-pmax(pl.speed1,pl.speed2,na.rm=T)
+  rm(pl.speed1,pl.speed2)
+  #Right
+  pr.speed1<-diff(pr)/diff(RemoteTime)
+  pr.speed2<-diff(rev(pr))/diff(rev(RemoteTime))
+  pr.speed1<-c(NA,pr.speed1)
+  pr.speed2<-c(rev(pr.speed2),NA)
+  pr.speed<-pmax(pr.speed1,pr.speed2,na.rm=T)
+  rm(pr.speed1,pr.speed2)
+  #median absolute deviation -SPEED
+  #constant<-3
+  pl.speed.med<-median(pl.speed,na.rm=T)
+  pl.mad<-median(abs(pl.speed-pl.speed.med),na.rm = T)
+  pl.treshold.speed<-pl.speed.med+constant*pl.mad #treshold.speed units are mm/microsecond
+  pr.speed.med<-median(pr.speed,na.rm=T)
+  pr.mad<-median(abs(pr.speed-pr.speed.med),na.rm = T)
+  pr.treshold.speed<-pr.speed.med+constant*pr.mad #treshold.speed units are mm/microsecond
+  #correct pupil dilation for speed outliers
+  pl<-ifelse(abs(pl.speed)>pl.treshold.speed,NA,pl)
+  pr<-ifelse(abs(pr.speed)>pr.treshold.speed,NA,pr)
+
+  ## B) delete data around blinks ####
+  #gaps=missing data sections > 75ms; Leonie: also <=250ms, otherwise not likely to be a blink
+  #to be excluded: samples within 50 ms of gaps -> +-25 (8 data points) oder 50?
+    #take sampling rate into account (300 vs. 120) - define individual values:
+    # individial_lower_threshold<-round(shortest_blink/median(diff(RemoteTime),na.rm=T))
+    # individial_upper_threshold<-round(longest_blink/median(diff(RemoteTime),na.rm=T))
+    # individial_deletion_span<-round(deletion_span/median(diff(RemoteTime),na.rm=T))
+    individial_lower_threshold<-round(shortest_blink/time_span)
+    individial_upper_threshold<-round(longest_blink/time_span)
+    individial_deletion_span<-round(deletion_span/time_span)
+    
+   pl<-fun_blink_cor(pl,
+                     lower_threshold=individial_lower_threshold,
+                     upper_threshold=individial_upper_threshold,
+                     samples_before=individial_deletion_span,
+                     samples_after=individial_deletion_span)
+   pr<-fun_blink_cor(pr,
+                     lower_threshold=individial_lower_threshold,
+                     upper_threshold=individial_upper_threshold,
+                     samples_before=individial_deletion_span,
+                     samples_after=individial_deletion_span)
+
+  ## C) normalized dilation size - median absolute deviation -SIZE ####
+  #applies a two pass approach
+  #first pass: exclude deviation from trend line derived from all samples
+  #second pass: exclude deviation from trend line derived from samples passing first pass
+  #-_> reintroduction of sample that might have been falsely excluded due to outliers
+  #estimate smooth size based on sampling rate
+  #take sampling rate into account (300 vs. 120):
+  #smooth.size<-round(smooth.length/median(diff(RemoteTime),na.rm=T)) #timestamp resolution in milliseconds
+  #use frequency rate directly as calculated above
+  smooth.size<-round(smooth.length/time_span)
+  is.even<-function(x){x%%2==0}
+  smooth.size<-ifelse(is.even(smooth.size)==T,smooth.size+1,smooth.size) #make sure to be odd value (see runmed)
+  #Left
+  pl.smooth<-na.approx(pl,na.rm=F,rule=2) #impute missing values with interpolation
+  #pl.smooth<-runmed(pl.smooth,k=smooth.size) #smooth algorithm by running median of 15 * 3.3ms
+  if(sum(!is.na(pl.smooth))!=0){pl.smooth<-runmed(pl.smooth,k=smooth.size)} #run smooth algo only if not all elements == NA
+  pl.mad<-median(abs(pl-pl.smooth),na.rm=T)
+  #Right
+  pr.smooth<-na.approx(pr,na.rm=F,rule=2) #impute missing values with interpolation
+  #pr.smooth<-runmed(pr.smooth,k=smooth.size) #smooth algorithm by running median of 15 * 3.3ms
+  if(sum(!is.na(pr.smooth))!=0){pr.smooth<-runmed(pr.smooth,k=smooth.size)} #run smooth algo only if not all elements == NA
+  pr.mad<-median(abs(pr-pr.smooth),na.rm=T)
+  #correct pupil dilation for size outliers - FIRST pass
+  pl.pass1<-ifelse((pl>pl.smooth+constant*pl.mad)|(pl<pl.smooth-constant*pl.mad),NA,pl)
+  pr.pass1<-ifelse((pr>pr.smooth+constant*pr.mad)|(pr<pr.smooth-constant*pr.mad),NA,pr)
+  #Left
+  pl.smooth<-na.approx(pl.pass1,na.rm=F,rule=2) #impute missing values with interpolation
+  #pl.smooth<-runmed(pl.smooth,k=smooth.size) #smooth algorithm by running median of 15 * 3.3ms
+  if(sum(!is.na(pl.smooth))!=0){pl.smooth<-runmed(pl.smooth,k=smooth.size)} #run smooth algo only if not all elements == NA
+  pl.mad<-median(abs(pl-pl.smooth),na.rm=T)
+  #Right
+  pr.smooth<-na.approx(pr.pass1,na.rm=F,rule=2) #impute missing values with interpolation
+  #pr.smooth<-runmed(pr.smooth,k=smooth.size) #smooth algorithm by running median of 15 * 3.3ms
+  if(sum(!is.na(pr.smooth))!=0){pr.smooth<-runmed(pr.smooth,k=smooth.size)} #run smooth algo only if not all elements == NA
+  pr.mad<-median(abs(pr-pr.smooth),na.rm=T)
+  #correct pupil dilation for size outliers - SECOND pass
+  pl.pass2<-ifelse((pl>pl.smooth+constant*pl.mad)|(pl<pl.smooth-constant*pl.mad),NA,pl)
+  pr.pass2<-ifelse((pr>pr.smooth+constant*pr.mad)|(pr<pr.smooth-constant*pr.mad),NA,pr)
+  pl<-pl.pass2
+  pr<-pr.pass2
+
+  ## D) sparsity filter - not applied ####
+  # STEP 3 - processing valid samples  ####
+  #take offset between left and right into account
+  pd.offset<-pl-pr
+  pd.offset<-na.approx(pd.offset,rule=2)
+  #mean pupil dilation across both eyes
+  pl <- ifelse(is.na(pl)==FALSE, pl, pr+pd.offset)
+  pr <- ifelse(is.na(pr)==FALSE, pr, pl-pd.offset)
+
+  #interpolation of NA (for <=300ms)
+   # individual_interpolation_samples<-round(interpolation_span/median(diff(RemoteTime),na.rm=T))
+  individual_interpolation_samples<-round(interpolation_span/time_span)
+  
+  pl<-na.approx(pl, na.rm=F, maxgap=individual_interpolation_samples, rule=2)
+  pr<-na.approx(pr, na.rm=F, maxgap=individual_interpolation_samples, rule=2)
+
+  pd <- (pl+pr)/2
+
+  #calculate baseline pd - mean of first 500ms
+  baseline_pd<-mean(pd[x$time_epoch<=baseline_pd_cutoff],na.rm=T)
+  baseline_pd<-rep(baseline_pd,nrow(x))
+
+  #return pupillometry values
+  x[,'pd_baseline']<-baseline_pd
+  x[,'pd']<-pd
+  x[,'rpd']<-pd-baseline_pd
+  return(x)
+}
+
+
+### apply to epoch dataset:
+#split each participant to epochs
+df_list_split<-pblapply(df_list_epoch,
+                        function(x){split(x,f=as.factor(x$EventCounter_epoch))})
+
+rm(df_list_epoch)
+
+df_list_split<-pblapply(df_list_split,
+                        function(x){lapply(x,func_pd_preprocess)})
+
+# saveRDS(df_list_split, file="C:/Users/nico/Desktop/mmn_leap_epochs_preprocessed_04072024.Rds",compress = F)
+
+saveRDS(df_list_split, file="C:/Users/nico/Desktop/mmn_leap_epochs_preprocessed_11072024.Rds",compress = F)
+
+
+```
+
+### in trial data
+
+```{r, eval=F}
+
+#define parameters for pd preprocessing function
+  constant<-3 ##--> speed  higher than constant * median change is excluded - MAD calculation
+  pd_lowest_plausible<-2
+  pd_highest_plausible<-8
+  interpolation_span<-100 #in ms
+  deletion_span<-25
+  shortest_blink<-75 #measured in ms
+  longest_blink<-250 #measured in ms
+  smooth.length<-150 #measured in ms
+  baseline_pd_cutoff<-250 #when to measure baseline pd
+  
+#pupil preprocessing function
+func_pd_preprocess<-function(x){
+
+  #debugging
+  #print(paste(head(x$id,1),head(x$EventCounter,1)))
+  
+  #define variables
+  Left_Diameter<-x$Left.Diameter
+  Right_Diameter<-x$Right.Diameter
+  RemoteTime<-x$RemoteTime #assumes to be in millisecond format
+  time_span<-head(x$frequency_rate,1)*1000 #in ms
+  
+  # STEP 1 - exclude invalid data ####
+  pl <- ifelse((Left_Diameter<pd_lowest_plausible|
+                  Left_Diameter>pd_highest_plausible), NA, Left_Diameter)
+  pr <- ifelse((Right_Diameter<pd_lowest_plausible|
+                  Right_Diameter>pd_highest_plausible), NA, Right_Diameter)
+  
+  # STEP 2 - filtering ####
+  ## A) normalized dilation speed, take into account time jumps with Remotetimestamps: ####
+  #maximum change in pd compared to last and next pd measurement
+  #Left
+  pl.speed1<-diff(pl)/diff(RemoteTime) #compared to last
+  pl.speed2<-diff(rev(pl))/diff(rev(RemoteTime)) #compared to next
+  pl.speed1<-c(NA,pl.speed1)
+  pl.speed2<-c(rev(pl.speed2),NA)
+  pl.speed<-pmax(pl.speed1,pl.speed2,na.rm=T)
+  rm(pl.speed1,pl.speed2)
+  #Right
+  pr.speed1<-diff(pr)/diff(RemoteTime)
+  pr.speed2<-diff(rev(pr))/diff(rev(RemoteTime))
+  pr.speed1<-c(NA,pr.speed1)
+  pr.speed2<-c(rev(pr.speed2),NA)
+  pr.speed<-pmax(pr.speed1,pr.speed2,na.rm=T)
+  rm(pr.speed1,pr.speed2)
+  #median absolute deviation -SPEED
+  #constant<-3
+  pl.speed.med<-median(pl.speed,na.rm=T)
+  pl.mad<-median(abs(pl.speed-pl.speed.med),na.rm = T)
+  pl.treshold.speed<-pl.speed.med+constant*pl.mad #treshold.speed units are mm/microsecond
+  pr.speed.med<-median(pr.speed,na.rm=T)
+  pr.mad<-median(abs(pr.speed-pr.speed.med),na.rm = T)
+  pr.treshold.speed<-pr.speed.med+constant*pr.mad #treshold.speed units are mm/microsecond
+  #correct pupil dilation for speed outliers
+  pl<-ifelse(abs(pl.speed)>pl.treshold.speed,NA,pl)
+  pr<-ifelse(abs(pr.speed)>pr.treshold.speed,NA,pr)
+
+  ## B) delete data around blinks ####
+  #gaps=missing data sections > 75ms; Leonie: also <=250ms, otherwise not likely to be a blink
+  #to be excluded: samples within 50 ms of gaps -> +-25 (8 data points) oder 50?
+    #take sampling rate into account (300 vs. 120) - define individual values:
+    # individial_lower_threshold<-round(shortest_blink/median(diff(RemoteTime),na.rm=T))
+    # individial_upper_threshold<-round(longest_blink/median(diff(RemoteTime),na.rm=T))
+    # individial_deletion_span<-round(deletion_span/median(diff(RemoteTime),na.rm=T))
+    individial_lower_threshold<-round(shortest_blink/time_span)
+    individial_upper_threshold<-round(longest_blink/time_span)
+    individial_deletion_span<-round(deletion_span/time_span)
+    
+   pl<-fun_blink_cor(pl,
+                     lower_threshold=individial_lower_threshold,
+                     upper_threshold=individial_upper_threshold,
+                     samples_before=individial_deletion_span,
+                     samples_after=individial_deletion_span)
+   pr<-fun_blink_cor(pr,
+                     lower_threshold=individial_lower_threshold,
+                     upper_threshold=individial_upper_threshold,
+                     samples_before=individial_deletion_span,
+                     samples_after=individial_deletion_span)
+
+  ## C) normalized dilation size - median absolute deviation -SIZE ####
+  #applies a two pass approach
+  #first pass: exclude deviation from trend line derived from all samples
+  #second pass: exclude deviation from trend line derived from samples passing first pass
+  #-_> reintroduction of sample that might have been falsely excluded due to outliers
+  #estimate smooth size based on sampling rate
+  #take sampling rate into account (300 vs. 120):
+  #smooth.size<-round(smooth.length/median(diff(RemoteTime),na.rm=T)) #timestamp resolution in milliseconds
+  #use frequency rate directly as calculated above
+  smooth.size<-round(smooth.length/time_span)
+  is.even<-function(x){x%%2==0}
+  smooth.size<-ifelse(is.even(smooth.size)==T,smooth.size+1,smooth.size) #make sure to be odd value (see runmed)
+  #Left
+  pl.smooth<-na.approx(pl,na.rm=F,rule=2) #impute missing values with interpolation
+  #pl.smooth<-runmed(pl.smooth,k=smooth.size) #smooth algorithm by running median of 15 * 3.3ms
+  if(sum(!is.na(pl.smooth))!=0){pl.smooth<-runmed(pl.smooth,k=smooth.size)} #run smooth algo only if not all elements == NA
+  pl.mad<-median(abs(pl-pl.smooth),na.rm=T)
+  #Right
+  pr.smooth<-na.approx(pr,na.rm=F,rule=2) #impute missing values with interpolation
+  #pr.smooth<-runmed(pr.smooth,k=smooth.size) #smooth algorithm by running median of 15 * 3.3ms
+  if(sum(!is.na(pr.smooth))!=0){pr.smooth<-runmed(pr.smooth,k=smooth.size)} #run smooth algo only if not all elements == NA
+  pr.mad<-median(abs(pr-pr.smooth),na.rm=T)
+  #correct pupil dilation for size outliers - FIRST pass
+  pl.pass1<-ifelse((pl>pl.smooth+constant*pl.mad)|(pl<pl.smooth-constant*pl.mad),NA,pl)
+  pr.pass1<-ifelse((pr>pr.smooth+constant*pr.mad)|(pr<pr.smooth-constant*pr.mad),NA,pr)
+  #Left
+  pl.smooth<-na.approx(pl.pass1,na.rm=F,rule=2) #impute missing values with interpolation
+  #pl.smooth<-runmed(pl.smooth,k=smooth.size) #smooth algorithm by running median of 15 * 3.3ms
+  if(sum(!is.na(pl.smooth))!=0){pl.smooth<-runmed(pl.smooth,k=smooth.size)} #run smooth algo only if not all elements == NA
+  pl.mad<-median(abs(pl-pl.smooth),na.rm=T)
+  #Right
+  pr.smooth<-na.approx(pr.pass1,na.rm=F,rule=2) #impute missing values with interpolation
+  #pr.smooth<-runmed(pr.smooth,k=smooth.size) #smooth algorithm by running median of 15 * 3.3ms
+  if(sum(!is.na(pr.smooth))!=0){pr.smooth<-runmed(pr.smooth,k=smooth.size)} #run smooth algo only if not all elements == NA
+  pr.mad<-median(abs(pr-pr.smooth),na.rm=T)
+  #correct pupil dilation for size outliers - SECOND pass
+  pl.pass2<-ifelse((pl>pl.smooth+constant*pl.mad)|(pl<pl.smooth-constant*pl.mad),NA,pl)
+  pr.pass2<-ifelse((pr>pr.smooth+constant*pr.mad)|(pr<pr.smooth-constant*pr.mad),NA,pr)
+  pl<-pl.pass2
+  pr<-pr.pass2
+
+  ## D) sparsity filter - not applied ####
+  # STEP 3 - processing valid samples  ####
+  #take offset between left and right into account
+  pd.offset<-pl-pr
+  pd.offset<-na.approx(pd.offset,rule=2)
+  #mean pupil dilation across both eyes
+  pl <- ifelse(is.na(pl)==FALSE, pl, pr+pd.offset)
+  pr <- ifelse(is.na(pr)==FALSE, pr, pl-pd.offset)
+
+  #interpolation of NA (for <=300ms)
+   # individual_interpolation_samples<-round(interpolation_span/median(diff(RemoteTime),na.rm=T))
+  individual_interpolation_samples<-round(interpolation_span/time_span)
+  
+  pl<-na.approx(pl, na.rm=F, maxgap=individual_interpolation_samples, rule=2)
+  pr<-na.approx(pr, na.rm=F, maxgap=individual_interpolation_samples, rule=2)
+
+  pd <- (pl+pr)/2
+
+  #calculate baseline pd - mean of first 250ms
+  baseline_pd<-mean(pd[x$time_event<=baseline_pd_cutoff],na.rm=T)
+  baseline_pd<-rep(baseline_pd,nrow(x))
+
+  #return pupillometry values
+  x[,'pd_baseline']<-baseline_pd
+  x[,'pd']<-pd
+  x[,'rpd']<-pd-baseline_pd
+  return(x)
+}
+
+
+###apply to trial dataset
+
+ #split each participant to trial
+ df_list_split<-pblapply(df_list,function(x){split(x,f=as.factor(x$EventCounter))})
+ df_list_split<-pblapply(df_list_split,function(x){lapply(x,func_pd_preprocess)})
+
+ saveRDS(df_list_split, file="C:/Users/nico/Desktop/mmn_leap_trials_preprocessed_04072024.Rds",compress = F)
+
+
+ 
+ # df_list<-pblapply(df_list_split,rbindlist)
+# rm(df_list_split)
+
+# df_list_epoch<-pblapply(df_list_split,rbindlist)
+# rm(df_list_split)
+
+    # ##testing:
+    # test<-df_list_split[[170]][[77]]
+    # #test2<-func_pd_preprocess(test)
+    # plot(test$rpd)
+    # rm(test,test2)
+
+###save to file
+
+
+```
+
+# estimate pupil response function
+
+- independent data set
+- passive auditory oddball task in adolescents
+
+## loads sega data (July 2024)
+
+```{r extract pupil response, eval=T}
+
+#use independent oddball data from sega
+df_sega<-readRDS("C:/Users/nico/Desktop/preprocessed_auditory_ETdata.rds")
+
+table(sapply(df_sega,function(x){head(x$phase,1)}))
+
+#extract only baseline  data (exclude oddball data)
+baseline_data<-pblapply(df_sega,function(x){
+  trial_type<-head(x$phase,1)
+  ifelse(trial_type %in% c('baseline_calibration','baseline'),
+         return(TRUE),
+         return(FALSE))})
+
+df_baseline_sega<-df_sega[unlist(baseline_data)]
+df_baseline_sega<-rbindlist(df_baseline_sega)
+  
+
+#extract only oddball trial data (exclude baseline data)
+oddball_data<-pblapply(df_sega,function(x){
+  trial_type<-head(x$phase,1)
+  ifelse(trial_type %in% c('oddball_block','oddball_block_rev'),
+         return(TRUE),
+         return(FALSE))})
+
+df_oddball_validate<-df_sega[unlist(oddball_data)]
+df_oddball_validate<-rbindlist(df_oddball_validate)
+
+#calculate baseline corrected (rpd)
+df_oddball_validate$rpd<-df_oddball_validate$pd-df_oddball_validate$rpd_low
+
+
+```
+
+## visualize baseline data
+
+- not relevant to current analysis
+- data is not related to AIMS-LEAP data
+
+```{r, eval=F}
+
+ggplot2::ggplot(df_baseline_sega,aes(x=block_counter,y=pd,group=block_counter))+geom_boxplot()+facet_wrap(~phase)
+
+```
+
+## extracts sample data
+
+- extract 1% of random data
+
+```{r}
+
+require(ggplot2)
+
+# select 10% of data 
+sampling_factor<-10
+subsample<-sample(1:nrow(df_oddball_validate),
+                  nrow(df_oddball_validate)/sampling_factor) 
+
+#adapt data to make fit work
+df_sample<-df_oddball_validate[subsample,]
+df_sample<-df_sample[df_sample$ts_trial<2,]
+df_sample<-df_sample[!is.na(df_sample$rpd),]
+
+rm(df_sega,df_oddball_validate)
+
+```
+
+## visualize pupil response
+
+```{r}
+
+#--> curve of the data within trial
+ggplot2::ggplot(df_sample,aes(x=ts_trial,y=rpd,color=trial))+geom_smooth()
+
+```
+
+## PCA of response
+
+- estimate components
+- currently not utilized
+
+```{r, eval=F}
+
+require(dplyr)
+df_pca<-select(df_sample,ts_trial,rpd,trial_number)
+
+df_pca$ts_trial<-round(df_pca$ts_trial,1)
+
+df_pca<-data.table::dcast(df_pca,trial_number~ts_trial,
+                          value.var = 'rpd',
+                          fun.aggregate = mean,na.rm=T)
+
+#possible number of factors
+psych::scree(df_pca)
+
+#apply exploratory factor analysis (EFA)
+Nfacs <- 3  # This is for four factors. You can change this as needed.
+fit <- factanal(df_pca, Nfacs, rotation="varimax")
+
+plot(fit$loadings[,1])
+plot(fit$loadings[,2])
+plot(fit$loadings[,3])
+
+print(fit)
+
+```
+
+## pupil response curve estimation
+
+- assume a cannonical response function
+- might be a linear time-invariant (LTI) filter 
+--> here estimated as a gamma distribution
+
+```{r, eval=F}
+
+#df_sample contains "standard" and "oddball" data
+  
+#--> distribution of an arbitrary gamma distribution to match curve
+start_shape <- 8.5
+start_rate <- 10.2
+scaling_factor <- 1/50 #match amplitude
+
+hist(rgamma(df_sample$ts_trial,shape = start_shape, rate = start_rate))
+
+##apply nonlinear least square to optimize gamma distribution parameters
+nlc <- nls.control(maxiter = 200)
+coef_opt<-nls(rpd~dgamma(ts_trial,shape = myshape, rate = myrate)*scaling_factor,
+          data=df_sample, control=nlc,
+          start=list(myshape=start_shape,myrate=start_rate),trace=T)
+
+    
+##--> optimized distribution parameters
+summary(coef_opt)
+coef(coef_opt)
+AIC(coef_opt)
+
+opt_shape<-coef(coef_opt)[1]
+opt_rate<-coef(coef_opt)[2]
+scaling_factor <- 1/50 #match amplitude - of around 2% ampltidue or 0.02mm
+# --->  rather 1/10 in LEAp data as mean response = 0.1mm
+
+
+        #compare to alternative models - normal distribution, custom polynomial
+        custom_poly<-function(x,y,k){z<-(y*(x-k)^4)+(3*y*(x-k)^2)-(2*y*(x-k))}
+        coef_alt1<-nls(rpd~custom_poly(ts_trial,y = mycoef, k = x_axis_shift),
+                  data=df_sample, control=nlc,
+                  start=list(mycoef=0.1,x_axis_shift=1),trace=T)
+        
+        coef_alt2<-nls(rpd~dnorm(ts_trial,mean = mymean, sd = mysd)*scaling_factor,
+              data=df_sample, control=nlc,
+              start=list(mymean=0.5,mysd=0.3),trace=T)
+        
+        anova(coef_opt,coef_alt1,coef_alt2)
+        AIC(coef_opt)
+        AIC(coef_alt1)
+        AIC(coef_alt2)
+        ###--> gamma distribution with best fit
+        
+        summary(coef_opt)
+        ##--> shape = 6.65, rate = 7.68
+        confint(coef_opt,level=0.95)
+        ##--> shape = [6.47, 6.82], rate = [7.47, 7.89]
+        
+        
+###distinct for oddball trials
+df_oddball<-df_sample[df_sample$trial=='oddball',]
+nlc <- nls.control(maxiter = 200)
+coef_opt_oddball<-nls(rpd~dgamma(ts_trial,shape = myshape, rate = myrate)*scaling_factor*2,
+          data=df_oddball, control=nlc,
+          start=list(myshape=start_shape,myrate=start_rate),trace=T)
+
+
+df_standard<-df_sample[df_sample$trial=='standard',]
+nlc <- nls.control(maxiter = 200)
+coef_opt_standard<-nls(rpd~dgamma(ts_trial,shape = myshape, rate = myrate)*scaling_factor,
+          data=df_standard, control=nlc,
+          start=list(myshape=start_shape,myrate=start_rate),trace=T)
+
+
+#compare optimized curve to data
+df_oddball$fit_predict<-predict(coef_opt_oddball)
+df_standard$fit_predict<-predict(coef_opt_standard)
+df_sample2<-rbind(df_oddball,df_standard)
+
+subsample<-sample(1:nrow(df_sample2),
+                  nrow(df_sample2)/10) 
+df_plot<-df_sample2[subsample,]
+ggplot(df_plot,aes(x=ts_trial,group=trial,linetype=trial))+
+  geom_smooth(aes(y=fit_predict),color='blue')+
+  geom_smooth(aes(y=rpd),color='red')+labs(title='red = data, blue = optimized fit')+
+  labs(x='trial duration (s)',y='pupil size (z)')
+
+```
+
+## plot fit 
+
+- in supplement of paper
+
+```{r}
+
+
+#compare optimized curve to data
+df_sample$fit_predict<-predict(coef_opt)
+subsample<-sample(1:nrow(df_sample),
+                  nrow(df_sample)/100) 
+df_plot<-df_sample[subsample,]
+g1<-ggplot(df_plot,aes(x=ts_trial,y=fit_predict))+geom_smooth()+
+  geom_smooth(aes(y=rpd),color='red')+labs(title='red = data, blue = optimized fit')+
+  labs(x='trial duration (s)',y='pupil size (z)')
+
+#evaluate residuals
+df_sample$fit_resi<-residuals(coef_opt)
+subsample<-sample(1:nrow(df_sample),
+                  nrow(df_sample)/1000) 
+df_plot<-df_sample[subsample,]
+g2<-ggplot(df_plot,aes(x=ts_trial,y=fit_resi))+geom_point(alpha=0.5)+
+  labs(x='trial duration (s)',y='residuals (z)')
+
+  
+# hist(df_sample$fit_resi,30)
+# summary(df_sample$fit_resi)
+
+#save to file
+tiff(file=paste0(project_path,"/output/supplements/figure_canonical_pupillary_response.tiff"), # create a file in tiff format in current working directory
+     width=6, height=6, units="in", res=300, compression='lzw') #define size and resolution of the resulting figure
+
+grid.arrange(g1,g2,nrow=2)
+
+dev.off()
+
+```
+
+
+# --> test preprocessed data
+
+- see that signal is preserved
+- LTI filter on epoched data improces signal to noise ratio
+
+## sample fraction of epoched data
+
+- selects 10% of data
+
+```{r, eval=F}
+
+df_list_epoch<-readRDS('C:/Users/nico/Desktop/mmn_leap_epochs_preprocessed_11072024.Rds')
+
+#select 70 random epochs of each individual ~ 5% of data
+number_of_trials<-140
+df_epoch_sample<-pblapply(df_list_epoch,function(x){x<-x[sample(1:1399,number_of_trials)]})
+#df_epoch_sample<-pblapply(df_list_split,function(x){x<-x[sample(1:1399,number_of_trials)]})
+
+rm(df_list_epoch)
+#rm(df_list_split)
+
+```
+
+### select single trial
+
+- tests LTI filter
+- visual examination
+- correct pulse that occur from different trials within epoch
+- uses a cannonical pupil response function estimated in independent data
+- scaling adapted to amplitude of response
+
+```{r}
+ #visualize: single trial plot
+  df_singletrial<-df_epoch_sample[[sample(1:343,1)]][[sample(1:number_of_trials,1)]]
+  head(df_singletrial$EventData_epoch,1)
+  ggplot(df_singletrial,aes(x=time_epoch,y=rpd))+geom_smooth(method="lm",                                                                         formula=y ~ poly(x, 9))
+  
+  #uses a gamma-shape linear time invariant filter 
+  mean_rpd_response<-0.01
+  fun_LTI_filter<-function(x,opt_shape=6.65,opt_rate=7.68,scaling_factor=mean_rpd_response){
+  
+    #check whether trial is empty
+    if(!is.null(x)){
+  
+    
+    length_epoch<-nrow(x) # legnth of epoch
+    onset_events<-which(x$ts_event==1) # onset of events
+    
+    # create matrix to fill - matrix of events
+    k<-matrix(0,nrow=length_epoch,ncol=length(onset_events)) 
+    
+    #fill matrix - with LTI filter based on events - each event with LTI filter
+    for(i in 1:length(onset_events)){
+      
+    onset_one_event<-onset_events[i]
+    null_sequence<-rep(0,onset_one_event-1)
+    event_sequence<-seq(1,length_epoch-onset_one_event+1)
+    event_sequence<-c(null_sequence,event_sequence)
+    event_sequence_time<-event_sequence*head(x$frequency_rate,1)
+    
+    predict_rpd_event<-dgamma(event_sequence_time,
+                             shape = opt_shape, 
+                             rate = opt_rate)*scaling_factor
+    
+    k[,i]<-predict_rpd_event
+    
+    }
+    
+    #sum of all pulses (for each event)
+    #predict_rpd_event<-rowSums(k)
+    predict_rpd_event<-apply(k,1,max)
+    
+    
+    ## this was a shortcut before, but cuts the end of pulses
+    # predict_rpd_event<-dgamma(x$time_event,
+    #                          shape = opt_shape, 
+    #                          rate = opt_rate)*scaling_factor
+     
+    
+    #pulse of epoch (related to first event of epoch)
+    predict_rpd_epoch<-dgamma(x$time_epoch,
+                             shape = opt_shape, 
+                             rate = opt_rate)*scaling_factor
+      
+    x$rpd_res<-x$rpd-predict_rpd_event+predict_rpd_epoch
+    x$predict_rpd_event<-predict_rpd_event
+    x$predict_rpd_epoch<-predict_rpd_epoch
+    
+    return(x)
+    
+    }
+    
+  }
+
+    df_singletrial<-fun_LTI_filter(df_singletrial)
+    
+    ggplot(df_singletrial)+
+    geom_smooth(aes(x=time_epoch,y=rpd),color='blue')+
+    geom_smooth(aes(x=time_epoch,y=rpd_res),color='red')+
+    labs(title='BLUE = pupillary response, RED = LTI filtered pupillary response')
+   
+    ggplot(df_singletrial)+
+    geom_point(aes(x=time_epoch,y=rpd),color='blue')+
+    geom_point(aes(x=time_epoch,y=predict_rpd_event),color='red')+
+    geom_point(aes(x=time_epoch,y=predict_rpd_epoch),color='green')+
+    geom_point(aes(x=time_epoch,y=rpd_res),color='black')
+      
+```
+
+## plot pupillary response
+
+- use downsampling to make plotting feasible
+- based on fraction of data 
+
+```{r, eval=F}
+
+downsampling_to_decimal_digits<-2 # 2 == 0.01 second precision (10ms)
+fun_downsample<-function(x,rounding_factor=downsampling_to_decimal_digits){
+
+  if(!is.null(x)){
+    
+  x$time_epoch_down<-round(x$time_epoch,rounding_factor)
+  x<-x[!duplicated(x$time_epoch_down),]
+  return(x)
+  
+  }
+  
+}
+
+
+df_downsample<-pblapply(df_epoch_sample,function(x){x<-lapply(x,fun_downsample)})
+
+#bind to data.frame
+df_downsample<-pblapply(df_downsample,rbindlist)
+df_downsample<-rbindlist(df_downsample)
+
+
+df_downsample<-df_downsample[df_downsample$time_epoch_down<=4,]
+df_downsample$oddball<-ifelse(df_downsample$EventData_epoch=='201',F,T)
+
+ggplot(df_downsample,aes(x=time_epoch,y=rpd,color=oddball))+
+  geom_smooth(method="lm",                                                            
+              formula=y~-1+x+I(x^2)+I(x^3)+I(x^4)+I(x^5))
+
+
+
+#save to file
+tiff(file=paste0(project_path,"/output/pupillary_response_within_epoched_data.tiff"), 
+     # create a file in tiff format in current working directory
+     width=6, height=4, units="in", res=300, compression='lzw') 
+#define size and resolution of the resulting figure
+
+
+ggplot(df_downsample,aes(x=time_epoch,y=rpd,color=EventData_epoch,fill=EventData_epoch))+
+  geom_smooth(method="lm",level=0.95,                  
+              #fit as 5th order poly and remove intercept (-1) to have zero as origin
+              formula=y~-1+x+I(x^2)+I(x^3)+I(x^4)+I(x^5),alpha=0.5)+
+  #figure formatting
+    coord_cartesian(xlim = c(0,3.5),ylim= c(-0.008,0.008))+ #zoom into plot
+    labs(x='epoch duration (s)',y='pupil size (mm)')+ #axis labels
+  scale_fill_manual(name='stimulus', #relabel legend
+                    values = custom_condition_colors[c(1,3,2,4)], 
+                    labels=c("201" = "standard", "202" = "pitch oddball", 
+                             "203" = "length oddball ", "204" = "pitch & length oddball"))+ 
+  #[c(1,3,2,4)] = colors like EEG fig
+  scale_color_manual(name='stimulus',
+                     values = custom_condition_colors[c(1,3,2,4)], 
+                     labels=c("201" = "standard", "202" = "pitch oddball", 
+                              "203" = "length oddball ", "204" = "pitch & length oddball"))
+
+dev.off()
+#close operation and save file
+
+
+```
+
+
+## test deconvolution with LTI filter
+
+
+
+```{r, eval=F}
+
+
+#uses a gamma-shape linear time invariant filter 
+  mean_rpd_response<-0.01
+  fun_LTI_filter<-function(x,opt_shape=6.65,opt_rate=7.68,scaling_factor=mean_rpd_response){
+  
+    #check whether trial is empty
+    if(!is.null(x)){
+  
+    
+    length_epoch<-nrow(x) # legnth of epoch
+    onset_events<-which(x$ts_event==1) # onset of events
+    
+    # create matrix to fill - matrix of events
+    k<-matrix(0,nrow=length_epoch,ncol=length(onset_events)) 
+    
+    #fill matrix - with LTI filter based on events - each event with LTI filter
+    for(i in 1:length(onset_events)){
+      
+    onset_one_event<-onset_events[i]
+    null_sequence<-rep(0,onset_one_event-1)
+    event_sequence<-seq(1,length_epoch-onset_one_event+1)
+    event_sequence<-c(null_sequence,event_sequence)
+    event_sequence_time<-event_sequence*head(x$frequency_rate,1)
+    
+    predict_rpd_event<-dgamma(event_sequence_time,
+                             shape = opt_shape, 
+                             rate = opt_rate)*scaling_factor
+    
+    k[,i]<-predict_rpd_event
+    
+    }
+    
+    #sum of all pulses (for each event)
+    #predict_rpd_event<-rowSums(k)
+    predict_rpd_event<-apply(k,1,max)
+    
+    
+    ## this was a shortcut before, but cuts the end of pulses
+    # predict_rpd_event<-dgamma(x$time_event,
+    #                          shape = opt_shape, 
+    #                          rate = opt_rate)*scaling_factor
+     
+    
+    #pulse of epoch (related to first event of epoch)
+    predict_rpd_epoch<-dgamma(x$time_epoch,
+                             shape = opt_shape, 
+                             rate = opt_rate)*scaling_factor
+      
+    x$rpd_res<-x$rpd-predict_rpd_event+predict_rpd_epoch
+    x$predict_rpd_event<-predict_rpd_event
+    x$predict_rpd_epoch<-predict_rpd_epoch
+    
+    return(x)
+    
+    }
+    
+  }
+
+
+df_epoch_sample<-pblapply(df_epoch_sample,function(x){x<-lapply(x,fun_LTI_filter)})
+
+#concatenate to list
+df_test<-pblapply(df_epoch_sample,rbindlist)
+df_test<-rbindlist(df_test)
+
+hist(df_test$rpd)
+summary(df_test$rpd)
+median(df_test$rpd,na.rm=T)
+
+
+df_sample<-df_test[sample(1:nrow(df_test),nrow(df_test)/10),]
+df_sample$oddball<-ifelse(df_sample$EventData_epoch=='201',F,T)
+df_sample<-df_sample[df_sample$time_epoch<=4,]
+ggplot(df_sample)+
+    geom_smooth(aes(x=time_epoch,y=rpd,linetype=oddball),color='blue')+
+    geom_smooth(aes(x=time_epoch,y=res_rpd,linetype=oddball),color='red')+
+  labs(title='BLUE = pupillary response, RED = LTI filtered pupillary response')
+    ###--> LTI filtered response with stronger response
+    
+
+
+      
+```
+
+# extract epoch aggregated data 
+
+- loads preprocessed epoched data that has structure: list_of_trials in list_of_participants
+- applies custom functions to derive outcome measures
+- aggregates data on per-trial level
+- saves aggregeated data frame (df_epoch)
+
+```{r, eval=F}
+
+#load preprocessed epoched data
+df_list_epoch<-readRDS('C:/Users/nico/Desktop/mmn_leap_epochs_preprocessed_11072024.Rds')
+
+#user-defined functions - rename a variable at position 
+fun_rename<-function(x,variable_position,new_name){
+  names(x)[variable_position]<-new_name
+  return(x)}
+
+## function to retrieve pupillary response ####
+fun_trial_rpd_response<-function(x){
+
+  # rpd_end<-mean(x$rpd[x$time_epoch>=0.75 & x$time_epoch<=1.75],na.rm=T)
+  # rpd_start<-mean(x$rpd[x$time_event<0.5],na.rm=T)
+  # 
+  # rpd_response<-rpd_end-rpd_start
+  # return(rpd_response)
+  
+   rpd_response<-mean(x$rpd[x$time_epoch>=0.75 & x$time_epoch<=1.75],na.rm=T)
+   return(rpd_response)
+
+
+}
+
+#apply function to list (TRIAL split list)
+list_rpd_response<-pblapply(df_list_epoch,function(x,y){sapply(x,fun_trial_rpd_response)})
+
+
+## function to apply LTI filter and retrieve response ####
+
+# define parameters of response
+opt_shape<-6.65
+opt_rate<-7.68
+scaling_factor<-1/500 #adapt scaling factor *10 - to match amplitude of response
+
+fun_trial_rpd_res<-function(x){
+
+  # impulse of each event within epoch
+  x$predict_rpd_event<-dgamma(x$time_event,
+                           shape = opt_shape, 
+                           rate = opt_rate)*scaling_factor
+  
+  #impulse of event traced in epoch
+  x$predict_rpd_epoch<-dgamma(x$time_epoch,
+                           shape = opt_shape, 
+                           rate = opt_rate)*scaling_factor
+
+  #define residual pupil response - that is corrected for pupillary impulses of other trials
+  x$rpd_res<-with(x,rpd-predict_rpd_event+predict_rpd_epoch)
+  rpd_res_response<-mean(x$rpd_res[x$time_epoch>=0.75 & x$time_epoch<=1.75],na.rm=T)
+  
+  return(rpd_res_response)
+
+}
+
+#apply function to list (TRIAL split list)
+list_rpd_res_response<-pblapply(df_list_epoch,function(x,y){sapply(x,fun_trial_rpd_res)})
+
+## function baseline  measure in trial ####
+
+fun_trial_pd_res<-function(x){
+
+  # impulse of each event within epoch
+  x$predict_rpd_event<-dgamma(x$time_event,
+                           shape = opt_shape, 
+                           rate = opt_rate)*scaling_factor
+  
+  #define residual pupil response - that is corrected for pupillary impulses of other trials
+  x$pd_res<-with(x,pd-predict_rpd_event)
+  pd_res<-mean(x$pd_res,na.rm=T)
+  
+  return(pd_res)
+
+}
+
+#apply function to list (TRIAL split list)
+list_pd_res<-pblapply(df_list_epoch,function(x,y){sapply(x,fun_trial_pd_res)})
+
+
+## function missing data ####
+
+##return missing data per trial
+fun_return_missing_trial<-function(x){
+
+  sum(is.na(x$rpd)==T)/length(x$rpd)
+
+}
+
+list_missing_data<-pblapply(df_list_epoch,function(x,y){sapply(x,fun_return_missing_trial)})
+
+
+## function to aggregate to trials ####
+fun_aggregate_trial<-function(x){
+
+id<-head(x$id,1)
+EventData_epoch<-head(x$EventData_epoch,1)
+EventCounter_epoch<-head(x$EventCounter_epoch,1)
+gazepos.x<-mean(x$gazepos.x,na.rm=T)
+gazepos.y<-mean(x$gazepos.y,na.rm=T)
+center_dev<-mean(x$center_dev,na.rm=T)
+pd<-mean(x$pd,na.rm=T)
+pd_baseline<-mean(x$pd_baseline,na.rm=T)
+rpd<-mean(x$rpd,na.rm=T)
+frequency_rate<-mean(x$frequency_rate,na.rm=T)
+number_of_samples<-max(x$ts_epoch,na.rm=T)
+trial_duration<-max(x$time_epoch,na.rm=T)
+
+subject_by_trial<-data.frame(
+  id,EventData_epoch,EventCounter_epoch,gazepos.x,gazepos.y,center_dev,pd,pd_baseline,rpd,frequency_rate,
+  number_of_samples,trial_duration
+)
+
+return(subject_by_trial)
+
+}
+
+#apply function to list (PARTICIPANT split list)
+list_trial_data<-pblapply(df_list_epoch,function(x,y){lapply(x,fun_aggregate_trial)}) ##takes three minutes
+
+
+##-->rbindlist to df_trial ####
+
+
+#test<-pbmapply(data.frame,list_trial_data,list_rpd_response,SIMPLIFY=F)
+
+list_trial<-pblapply(list_trial_data,rbindlist)
+rm(list_trial_data)
+
+list_trial<-pbmapply(data.frame,list_trial,list_rpd_response,SIMPLIFY=F)
+list_trial<-pblapply(list_trial,fun_rename,variable_position=ncol(list_trial[[1]]),
+                     new_name='rpd_response') #rename LAST variable
+
+list_trial<-pbmapply(data.frame,list_trial,list_rpd_res_response,SIMPLIFY=F)
+list_trial<-pblapply(list_trial,fun_rename,variable_position=ncol(list_trial[[1]]),
+                     new_name='rpd_res_response') #rename LAST variable
+
+list_trial<-pbmapply(data.frame,list_trial,list_pd_res,SIMPLIFY=F)
+list_trial<-pblapply(list_trial,fun_rename,variable_position=ncol(list_trial[[1]]),
+                     new_name='pd_res') #rename LAST variable
+
+list_trial<-pbmapply(data.frame,list_trial,list_missing_data,SIMPLIFY=F)
+list_trial<-pblapply(list_trial,fun_rename,variable_position=ncol(list_trial[[1]]),
+                     new_name='missing_data_trial') #rename LAST variable
+
+df_epoch<-rbindlist(list_trial)
+
+saveRDS(df_epoch,file="C:/Users/nico/Desktop/mmn_leap_epochs_agg_11072024.Rds",compress = F)
+
+rm(df_list_epoch)
+
+```
+
+# define additional variables: ID, wave and sampling rate
+
+```{r}
+
+df_epoch<-readRDS(file="C:/Users/nico/Desktop/mmn_leap_epochs_agg_11072024.Rds")
+
+
+df_epoch$wave<-substr(df_epoch$id,14,18)
+df_epoch$subjects<-substr(df_epoch$id,1,12)
+df_epoch$sampling_rate<-with(df_epoch,ifelse(frequency_rate==0.003333,'300Hz',
+                                             ifelse(frequency_rate==0.008333,'120Hz','Other')))
+
+
+```
+
+# demographic data
+
+## load demographic data
+
+```{r}
+
+#demfile<-paste0(home_path,"/PowerFolders/data_LEAP/corelclinical_final050919/LEAP_t1_Core clinical variables_03-09-19-withlabels.xlsx")
+#t1 and t2 data
+demfile<-paste0(home_path,"/PowerFolders/data_LEAP/corelclinical_final050919/LEAP_t1_t2_Core clinical variables_03-09-19-withlabels.xlsx")
+
+df_dem<-read_excel(demfile, 1, col_names = T, na = c('999','777'))
+
+ids_et_data<-unique(substr(df_epoch$id,1,12))
+
+table(ids_et_data %in% unique(df_dem$subjects))
+#--> n = 251: unique participants with MMN eye-tracking and demographic data
+# NTC: n = 100; ASD: n = 151 - participants with MMN eye-tracking by group
+
+#change to characters
+df_dem$subjects<-as.character(df_dem$subjects)
+
+#select only participants with ET data
+df_dem<-df_dem[unique(df_dem$subjects) %in% ids_et_data,]
+###--> 251 remain
+
+```
+
+## create timepoint data frame on demographic data
+
+```{r}
+
+fun_df_timepoints<-function(x){
+
+  #split into wave 1 and wave 2 data
+  subjects<-x[,names(x)=='subjects']
+  df_dem_wave1<-x[,grepl('t1',names(x))]
+  df_dem_wave2<-x[,grepl('t2',names(x))]
+
+  #separate variables that are unique and non-unique in wide format
+  unique_variables_wave1<-!(substr(names(df_dem_wave1),4,nchar(names(df_dem_wave1))) %in% substr(names(df_dem_wave2),4,nchar(names(df_dem_wave2))))
+  unique_variables_wave2<-!(substr(names(df_dem_wave2),4,nchar(names(df_dem_wave2))) %in% substr(names(df_dem_wave1),4,nchar(names(df_dem_wave1))))
+
+  df_dem_unique_wave1<-df_dem_wave1[,unique_variables_wave1]
+  df_dem_notunique_wave1<-df_dem_wave1[,!unique_variables_wave1]
+  df_dem_unique_wave2<-df_dem_wave2[,unique_variables_wave2]
+  df_dem_notunique_wave2<-df_dem_wave2[,!unique_variables_wave2]
+
+  #allign names for non unique variables
+  names(df_dem_notunique_wave1)<-substr(names(df_dem_notunique_wave1),4,nchar(names(df_dem_notunique_wave1)))
+  names(df_dem_notunique_wave2)<-substr(names(df_dem_notunique_wave2),4,nchar(names(df_dem_notunique_wave2)))
+
+  df_dem_wave1<-data.frame(subjects,df_dem_unique_wave1)
+  df_dem_wave2<-data.frame(subjects,df_dem_unique_wave2)
+
+  #add wave variable
+  df_dem_wave1$wave<-'wave1'
+  df_dem_wave2$wave<-'wave2'
+
+  df_dem_notunique<-rbind(df_dem_notunique_wave1,df_dem_notunique_wave2)
+  df_timepoint<-rbind(df_dem_wave1[,c('subjects','wave')],df_dem_wave2[,c('subjects','wave')])
+  df_timepoint<-cbind(df_timepoint,df_dem_notunique)
+
+  df_dem_unique_wave1<-rbind(df_dem_unique_wave1,df_dem_unique_wave1)
+  df_dem_unique_wave2<-rbind(df_dem_unique_wave2,df_dem_unique_wave2)
+  df_timepoint<-cbind(df_timepoint,df_dem_unique_wave1,df_dem_unique_wave2)
+
+  #create merging variable
+  df_timepoint$id<-paste(df_timepoint$subjects,df_timepoint$wave,sep='_')
+  return(df_timepoint)
+
+}
+
+df_timepoint<-fun_df_timepoints(df_dem)
+
+#drop those that have no et data
+df_timepoint<-df_timepoint[df_timepoint$id %in% unique(df_epoch$id),]
+###--> n = 339
+
+with(df_timepoint,table(wave,t1_diagnosis))
+with(df_timepoint,length(unique(subjects)))
+with(df_timepoint,by(ageyrs,wave,summary))
+with(df_timepoint,table(wave))
+
+names(df_timepoint)
+
+```
+
+## ADD timepoint variable
+
+- identifies which participants had which timepoint
+
+```{r}
+
+###--> define timepoint variable - identify which participants have which measurement timepoints completed ####
+subjects<-rownames(with(df_timepoint,table(subjects,wave)))
+timepoints<-ifelse(with(df_timepoint,table(subjects,wave)[,1]==1 & table(subjects,wave)[,2]==0),'only_wave1',
+                   ifelse(with(df_timepoint,table(subjects,wave)[,1]==0 & table(subjects,wave)[,2]==1),'only_wave2','wave1+2'))
+
+df_subjects<-data.frame(subjects,timepoints)
+df_dem<-merge(df_dem,df_subjects,by='subjects')
+table(df_dem$timepoints)
+###--> n=75 only wave 1
+###--> n=88 only wave 2
+###--> n=88 wave 1 & wave 2
+
+```
+
+## load data quality
+
+### ADD data quality from file 
+
+- based on ET data from consortium
+
+```{r}
+
+df_quality<-read_excel(paste0(home_path,'/PowerFolders/Paper_AIMS-LEAP_ETcore/data/LEAP 672+60 Cluster and quality scores.xlsx'))
+df_quality<-df_quality[,c('ParticipantID','Cluster','SR','Accuracy','Precision','Flicker')]
+
+table(df_dem$subjects %in% df_quality$ParticipantID)
+df_dem<-merge(df_dem,df_quality,by.x='subjects',by.y='ParticipantID',all.x=T)
+###-->would lose 31 subject that have no data quality scores - ergo also no information on sampling rate
+
+```
+
+### ADD data quality from eye tracking data 
+
+```{r}
+
+df_missingdata<-data.frame(subjects=unique(df_epoch$subjects),
+                           missing_data_trial=with(df_epoch,as.numeric(by(missing_data_trial,subjects,mean,na.rm=T))),
+                           sampling_rate=with(df_epoch,as.factor(by(sampling_rate,subjects,head,n=1))))
+df_dem<-merge(df_dem,df_missingdata,by='subjects')
+
+df_missingdata<-data.frame(id=unique(df_epoch$id),
+                           missing_data_trial=with(df_epoch,as.numeric(by(missing_data_trial,id,mean,na.rm=T))),
+                           sampling_rate=with(df_epoch,as.factor(by(sampling_rate,id,head,n=1))))
+df_timepoint<-merge(df_timepoint,df_missingdata,by='id')
+
+```
+
+### ADD eye tracking variables
+
+```{r}
+
+df_et_vars<-aggregate(df_epoch[,c('center_dev','pd','pd_baseline','pd_res','rpd_response')],by=list(df_epoch$subjects),FUN=mean,na.rm=T)
+
+df_et_vars_rpd<-aggregate(df_epoch[,c('rpd_response')],
+                          by=list(df_epoch$subjects,df_epoch$EventData_epoch),FUN=mean,na.rm=T)
+
+df_et_vars_rpd<-reshape(df_et_vars_rpd, idvar = "Group.1", timevar = "Group.2", direction = "wide") #long to wide format
+
+df_et_vars_rpd_res<-aggregate(df_epoch[,c('rpd_res_response')],
+                              by=list(df_epoch$subjects,df_epoch$EventData_epoch),FUN=mean,na.rm=T)
+
+df_et_vars_rpd_res<-reshape(df_et_vars_rpd_res, idvar = "Group.1", timevar = "Group.2", direction = "wide") #long to wide format
+names(df_et_vars)[1]<-'subjects'
+names(df_et_vars_rpd)[1]<-'subjects'
+names(df_et_vars_rpd_res)[1]<-'subjects'
+
+df_dem<-merge(df_dem,df_et_vars,by='subjects')
+df_dem<-merge(df_dem,df_et_vars_rpd,by='subjects')
+df_dem<-merge(df_dem,df_et_vars_rpd_res,by='subjects')
+
+df_et_vars<-aggregate(df_epoch[,c('center_dev','pd','pd_baseline','pd_res')],
+                      by=list(df_epoch$id),FUN=mean,na.rm=T)
+
+df_et_vars_rpd<-aggregate(df_epoch[,c('rpd_response')],by=list(df_epoch$id,df_epoch$EventData_epoch),FUN=mean,na.rm=T)
+df_et_vars_rpd<-reshape(df_et_vars_rpd, idvar = "Group.1", timevar = "Group.2", direction = "wide") #long to wide format
+df_et_vars_rpd_res<-aggregate(df_epoch[,c('rpd_res_response')],by=list(df_epoch$id,df_epoch$EventData_epoch),FUN=mean,na.rm=T)
+df_et_vars_rpd_res<-reshape(df_et_vars_rpd_res, idvar = "Group.1", timevar = "Group.2", direction = "wide") #long to wide format
+names(df_et_vars)[1]<-'id'
+names(df_et_vars_rpd)[1]<-'id'
+names(df_et_vars_rpd_res)[1]<-'id'
+
+df_timepoint<-merge(df_timepoint,df_et_vars,by='id')
+df_timepoint<-merge(df_timepoint,df_et_vars_rpd,by='id')
+df_timepoint<-merge(df_timepoint,df_et_vars_rpd_res,by='id')
+
+```
+
+## impute missing clinical data
+
+```{r}
+
+selected_vars<-c('subjects','t1_group','t1_diagnosis','t1_asd_thresh','t1_site',
+                 't1_schedule_adj','t1_sex','t1_ageyrs',
+                 't1_viq','t1_piq','t1_fsiq','t1_ssp_total','t1_rbs_total',
+                 "t1_srs_rawscore_combined","t1_css_total_all","t1_sa_css_all","t1_rrb_css_all",
+                 "t1_adi_social_total","t1_adi_communication_total","t1_adi_rrb_total")
+
+df_dem_select<-df_dem[,names(df_dem) %in% selected_vars]
+
+####--> mental health comorbidities ##
+adhd_inatt<-with(df_dem,ifelse(!is.na(t1_adhd_inattentiv_parent),t1_adhd_inattentiv_parent,t1_adhd_inattentiv_self)) #get ADHD rating from parent and self ratings
+adhd_hyper<-with(df_dem,ifelse(!is.na(t1_adhd_hyperimpul_parent),t1_adhd_hyperimpul_parent,t1_adhd_hyperimpul_self)) #get ADHD rating from parent and self ratings
+
+anx_beck<-with(df_dem,ifelse(!is.na(t1_beck_anx_adulta_self),t1_beck_anx_adulta_self,
+                             ifelse(!is.na(t1_beck_anx_youthb_self),t1_beck_anx_youthb_self,t1_beck_anx_youthcd_parent
+                             )))
+
+dep_beck<-with(df_dem,ifelse(!is.na(t1_beck_dep_adulta_self),t1_beck_dep_adulta_self,
+                             ifelse(!is.na(t1_beck_dep_youthb),t1_beck_dep_youthb,
+                                    ifelse(!is.na(t1_beck_dep_youthcd),t1_beck_dep_youthcd,t1_beck_dep_adultd_parent)
+                             )))
+
+#missings
+table(is.na(adhd_inatt))[2]/length(adhd_inatt)
+table(is.na(adhd_hyper))[2]/length(adhd_hyper)
+table(is.na(anx_beck))[2]/length(anx_beck)
+table(is.na(dep_beck))[2]/length(dep_beck)
+
+#MICE imputation of mental health covariates based on sex, age, iq, group, and other covariates
+require(mice)
+data_imp<-mice(data.frame(df_dem_select,adhd_inatt,adhd_hyper,anx_beck,dep_beck)[,c('adhd_inatt','adhd_hyper','anx_beck','dep_beck','t1_ageyrs','t1_viq','t1_piq','t1_fsiq','t1_sex','t1_diagnosis')],m=5,maxit=50,meth='pmm',seed=500, printFlag = F)
+df_imputed<-complete(data_imp,5)[,c('adhd_inatt','adhd_hyper','anx_beck','dep_beck','t1_piq')]
+
+df_imputed<-data.frame(subjects=df_dem$subjects,df_imputed)
+df_dem<-df_dem[,!names(df_dem) %in% c('t1_piq')]
+df_dem<-merge(df_dem,df_imputed,by='subjects')
+#df_timepoint<-merge(df_timepoint,df_imputed,by='subjects')
+
+```
+
+## remove participants with missing IQ
+
+- n=7
+
+```{r}
+
+table(is.na(df_dem$t1_piq))
+table(is.na(df_timepoint$t1_piq))
+
+df_dem<-df_dem[!is.na(df_dem$t1_piq),]
+df_timepoint<-df_timepoint[!is.na(df_timepoint$t1_piq),]
+
+```
+
+# matching
+
+- dropped in matching: non-autism: n=2, autism: n=11
+
+```{r data matching}
+
+groupBoo<-with(df_dem,ifelse(t1_diagnosis=='ASD',1,0))
+
+with(df_dem,t.test(t1_piq~t1_diagnosis))
+with(df_dem,t.test(center_dev~t1_diagnosis))
+
+with(df_dem,t.test(missing_data_trial~t1_diagnosis))
+with(df_dem,t.test(t1_age~t1_diagnosis))
+with(df_dem,chisq.test(t1_sex,t1_diagnosis))
+
+#ALL - matching
+set.seed(100)
+all.match<-matchit(groupBoo~t1_piq+center_dev,
+                   data=df_dem,
+                   method='nearest',discard='both',
+                   ratio=4, #match four controls to each ASD
+                   replace=T,caliper=0.1)
+#replace=T,caliper=0.05)
+
+summary(all.match)[['nn']]
+
+#remove unmatched cases - from eye tracking data
+all.match<-match.data(all.match)
+
+with(all.match,t.test(t1_piq~t1_diagnosis))
+with(all.match,t.test(missing_data_trial~t1_diagnosis))
+with(all.match,t.test(center_dev~t1_diagnosis))
+
+#reduce data sets based on matched sample
+df_dem<-df_dem[df_dem$subjects %in% all.match$subjects,]
+df_epoch<-df_epoch[df_epoch$subjects %in% all.match$subjects,]
+
+
+# #also do for df (unaggregated data) --> happens down below in visualization
+
+```
+
+
+# merge demographics with epoch data
+
+```{r}
+
+exclusive_variables<-names(df_timepoint)[(names(df_timepoint) %in% names(df_epoch))]
+exclusive_variables<-exclusive_variables[-1]
+df_timepoint_merge<-df_timepoint[,!names(df_timepoint) %in% exclusive_variables]
+
+df_epoch<-merge(df_epoch,df_timepoint_merge,by='id')
+
+```
+
+
+# discard implausible values
+
+```{r}
+
+df_epoch<-df_epoch[df_epoch$EventCounter_epoch<=1400,]
+
+```
+
+# --> save preprocced data
+
+```{r save final df}
+
+save(df_epoch,df_dem,df_timepoint,
+     file="C:/Users/nico/PowerFolders/project_oddball_LEAP/data/mmn_leap_pd_final_dfs_epoch_19072024")
+
+```
+
+
+
+# test main models
+
+- outcome variables:
+  - pd_baseline: mean pd of 500ms of a trial
+  - pd_res: pupil size mean of trial but corrected for pupil response pulses (LTI filter) 
+  - rpd_resopnse: mean relative pupil size between 750ms and 1750ms
+  - rpd_res_response: rpd_response but applied LTI filter on pupillary responses
+  
+## task condition effects
+
+### BPS
+
+```{r}
+
+require(lme4)
+require(lmerTest)
+require(emmeans)
+require(performance) #r²_nakagawa - marginalized and conditional R² 
+
+
+lmm<-lmer(scale(pd_baseline)~EventData_epoch+
+            (1|subjects),data=df_epoch)
+
+summary(lmm)
+anova(lmm)
+emmeans(lmm,~EventData_epoch)
+confint(contrast(emmeans(lmm,~EventData_epoch),'pairwise'))
+###--> 201 > 202
+
+
+
+r2_nakagawa(lmm)  
+  
+#BIC Bayes Factor
+lmm_ML<-lmer(scale(pd_baseline)~EventData_epoch+
+              (1|subjects),data=df_epoch,REML=F)
+
+null_lmm_ML <- lmer(scale(pd_baseline)~1+
+                  (1|subjects),data=df_epoch,REML=F)
+
+BF_BIC <- exp((BIC(null_lmm_ML) - BIC(lmm_ML))/2)  
+BF_BIC  
+
+####--> no evidence of task effects as R2 marginal very small and Bayes Factor < 1
+
+
+lmm<-lmer(scale(pd_res)~EventData_epoch+
+            (1|subjects),data=df_epoch)
+
+anova(lmm)
+emmeans(lmm,~EventData_epoch)
+confint(contrast(emmeans(lmm,~EventData_epoch),'pairwise'))
+###--> 201 > 202
+
+r2_nakagawa(lmm)  
+  
+#BIC Bayes Factor
+lmm_ML<-lmer(scale(pd_res)~EventData_epoch+
+              (1|subjects),data=df_epoch,REML=F)
+
+null_lmm_ML <- lmer(scale(pd_res)~1+
+                  (1|subjects),data=df_epoch,REML=F)
+
+BF_BIC <- exp((BIC(null_lmm_ML) - BIC(lmm_ML))/2)  
+BF_BIC  
+
+####--> no evidence of task effects as R2 marginal very small and Bayes Factor < 1
+
+```
+
+### SEPR
+
+```{r}
+
+## include trial characteristics - TRIAL CONDITION
+lmm<-lmer(scale(rpd_response)~EventData_epoch+
+            (1|subjects),data=df_epoch)
+
+anova(lmm)
+emmeans(lmm,~EventData_epoch)
+confint(contrast(emmeans(lmm,~EventData_epoch),'pairwise'))
+###--> 201 < 202 + 204 + 203
+
+r2_nakagawa(lmm)  
+  
+#BIC Bayes Factor  
+lmm_ML<-lmer(scale(rpd_response)~EventData_epoch+
+          (1|subjects),data=df_epoch,REML=F)
+
+null_lmm_ML <- lmer(scale(rpd_response)~1+
+                 (1|subjects),data=df_epoch,REML=F)
+
+BF_BIC <- exp((BIC(null_lmm_ML) - BIC(lmm_ML))/2)  # BICs to Bayes factor
+BF_BIC
+
+# ---> evidence for task effect
+
+
+
+## include trial characteristics - TRIAL CONDITION
+lmm<-lmer(scale(rpd_res_response)~EventData_epoch+
+            (1|subjects),data=df_epoch)
+
+anova(lmm)
+emmeans(lmm,~EventData_epoch)
+confint(contrast(emmeans(lmm,~EventData_epoch),'pairwise'))
+###--> 201 < 202 + 204 + 203
+
+r2_nakagawa(lmm)  
+  
+
+#BIC Bayes Factor           
+lmm_ML<-lmer(scale(rpd_res_response)~EventData_epoch+
+          (1|subjects),data=df_epoch,REML=F)
+
+null_lmm_ML <- lmer(scale(rpd_res_response)~1+
+                 (1|subjects),data=df_epoch,REML=F)
+
+BF_BIC <- exp((BIC(null_lmm_ML) - BIC(lmm_ML))/2)  # BICs to Bayes factor
+BF_BIC
+
+# ---> evidence for task effect
+
+
+```
+
+## task progression effect
+
+### BPS
+
+```{r}
+
+###polynomial fit of trial counter
+    linear_fit<-lmer(scale(pd_res)~scale(EventCounter_epoch)+
+            (1|subjects),data=df_epoch,REML=F)
+  
+    quadratic_fit<-lmer(scale(pd_res)~stats::poly(scale(EventCounter_epoch),2)+
+                (1|subjects),data=df_epoch,REML=F)
+  
+    cubic_fit<-lmer(scale(pd_res)~stats::poly(scale(EventCounter_epoch),3)+
+                 (1|subjects),data=df_epoch,REML=F)
+    
+    anova(linear_fit,quadratic_fit,cubic_fit)
+    ###--> cubic fit
+
+lmm<-lmer(scale(pd_res)~stats::poly(EventCounter_epoch,3)+
+            (1|subjects),data=df_epoch)
+
+anova(lmm)
+
+confint(contrast(emmeans(lmm,~EventCounter_epoch,at=list(EventCounter_epoch = seq(1,1400,699))),'revpairwise'))
+emmeans(lmm,~EventCounter_epoch,at=list(EventCounter_epoch = seq(1,1400,699)))
+
+
+#BIC Bayes Factor           
+lmm_ML<-lmer(scale(pd_res)~stats::poly(EventCounter_epoch,3)+
+            (1|subjects),data=df_epoch,REML=F)
+
+null_lmm_ML <- lmer(scale(pd_res)~1+
+            (1|subjects),data=df_epoch,REML=F)
+
+BF_BIC <- exp((BIC(null_lmm_ML) - BIC(lmm_ML))/2)  # BICs to Bayes factor
+BF_BIC
+
+```
+
+### SEPR
+
+```{r}
+
+###polynomial fit of trial counter
+    linear_fit<-lmer(scale(rpd_res_response)~scale(EventCounter_epoch)+
+            (1|subjects),data=df_epoch,REML=F)
+  
+    quadratic_fit<-lmer(scale(rpd_res_response)~stats::poly(scale(EventCounter_epoch),2)+
+                (1|subjects),data=df_epoch,REML=F)
+  
+    cubic_fit<-lmer(scale(rpd_res_response)~stats::poly(scale(EventCounter_epoch),3)+
+                 (1|subjects),data=df_epoch,REML=F)
+    
+    anova(linear_fit,quadratic_fit,cubic_fit)
+    ###--> linear fit
+
+    
+lmm<-lmer(scale(rpd_res_response)~EventCounter_epoch+
+              (1|subjects),data=df_epoch)
+  
+anova(lmm)
+  
+cbind(round(fixef(lmm)['EventCounter_epoch'],9),
+              round(confint(lmm,parm = 'EventCounter_epoch'),9))
+
+confint(contrast(emmeans(lmm,~EventCounter_epoch,at=list(EventCounter_epoch =   seq(1,1400,1399))),'pairwise'))
+
+###--> no change with task progression
+  
+
+```
+
+## between group effects
+
+### BPS
+
+```{r}
+
+#main model
+lmm_REML<-lmer(scale(pd_res)~EventData_epoch*t1_diagnosis*stats::poly(EventCounter_epoch,3)+
+              (1|subjects),data=df_epoch)
+
+#fixed effect significances
+anova(lmm_REML)
+
+#model fit
+r2_nakagawa(lmm_REML)
+
+contrast(emmeans(lmm_REML,~t1_diagnosis|EventCounter_epoch,at=list(EventCounter_epoch = seq(1,1400,699))),'pairwise')
+
+###--> higher upregulation in ASD
+
+
+#Bayes factor - group x task progression
+lmm_ML<-lmer(scale(pd_res)~EventData_epoch*t1_diagnosis*stats::poly(EventCounter_epoch,3)+
+              (1|subjects),data=df_epoch,REML=F)
+
+null_lmm_ML <- lmer(scale(pd_res)~EventData_epoch+t1_diagnosis+stats::poly(EventCounter_epoch,3)+
+                   EventData_epoch:stats::poly(EventCounter_epoch,3)+
+              (1|subjects),data=df_epoch,REML=F)
+
+BF_BIC <- exp((BIC(null_lmm_ML) - BIC(lmm_ML))/2)  # BICs to Bayes factor
+BF_BIC
+
+```
+
+### SEPR
+
+```{r}
+
+#MAIN MODEL - pupillary response by group - random intercept
+lmm_REML<-lmer(scale(rpd_res_response)~EventData_epoch*t1_diagnosis*EventCounter_epoch+
+            (1|subjects),data=df_epoch)
+            
+#fixed effect significances
+anova(lmm_REML)
+
+
+```
+
+
+
+```{r}
+
+
+
+##BPS
+lmm<-lmer(scale(pd_baseline)~EventData_epoch*t1_diagnosis*EventCounter_epoch+
+            (1|subjects),data=df_epoch)
+
+anova(lmm)
+contrast(emmeans(lmm,~EventData_epoch|t1_diagnosis),'pairwise')
+emtrends(lmm,~t1_diagnosis,var='EventCounter_epoch')
+
+r2_nakagawa(lmm)
+
+
+
+##BPS (res response)
+lmm<-lmer(scale(pd_res)~EventData_epoch*t1_diagnosis*EventCounter_epoch+
+            scale(ageyrs)+scale(t1_piq)+sex+
+            scale(center_dev)+as.factor(sampling_rate)+scale(missing_data_trial)+
+            (1|subjects),data=df_epoch)
+
+anova(lmm)
+contrast(emmeans(lmm,~EventData_epoch),'pairwise')
+contrast(emmeans(lmm,~EventData_epoch|t1_diagnosis),'pairwise')
+emtrends(lmm,~t1_diagnosis,var='EventCounter_epoch')
+
+
+
+##SEPR
+lmm<-lmer(scale(rpd_response)~EventData_epoch*t1_diagnosis+
+            scale(ageyrs)+scale(t1_piq)+sex+
+            scale(center_dev)+as.factor(sampling_rate)+scale(missing_data_trial)+
+            (1|subjects),data=df_epoch)
+
+anova(lmm)
+emmeans(lmm,~EventData_epoch)
+confint(contrast(emmeans(lmm,~EventData_epoch),'pairwise'))
+###--> all oddball responses higher
+
+
+##SEPR res
+lmm<-lmer(scale(rpd_res_response)~EventData_epoch*t1_diagnosis*EventCounter_epoch+
+              (1|subjects),data=df_epoch)
+
+anova(lmm)
+emmeans(lmm,~EventData_epoch)
+confint(contrast(emmeans(lmm,~EventData_epoch),'pairwise'))
+###--> all oddball responses higher
+
+
+
+lmm<-lmer(scale(rpd_res_response)~EventData_epoch*t1_diagnosis*EventCounter_epoch+
+             (1|subjects),data=df_epoch)
+
+anova(lmm)
+emmeans(lmm,~EventData_epoch)
+confint(contrast(emmeans(lmm,~EventData_epoch),'pairwise'))
+###--> all oddball responses higher
+
+
+
+```
+
+
+
