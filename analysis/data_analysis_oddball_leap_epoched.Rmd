@@ -45,6 +45,7 @@ require(R.matlab) # read matlab files
 require(effectsize) # cohens D
 
 require(RColorBrewer) #color palettes
+require(grid) #nullGrob
 require(gridExtra) #arrange plots
 require(wesanderson) #custom color palettes
 
@@ -253,6 +254,23 @@ df_luminance<-readRDS(paste0(project_path,'/data/stimulus_luminance.rds'))
 df_luminance$trials<-round(df_luminance$trials)
 df_luminance<-df_luminance[!duplicated(df_luminance$trials),]
 df_epoch<-merge(df_epoch,df_luminance,by.x='EventCounter_epoch',by.y='trials')
+
+```
+
+
+# load and merge artifical lighting data
+
+```{r artifical ligthing as room luminance}
+
+require(readxl)
+df_lightlevel<-read_xlsx(paste0(project_path,'/data/LEAP_ET_lightLevels.xlsx'))
+df_lightlevel$lux<-with(df_lightlevel,ifelse(EYETLuminance==777|EYETLuminance==999,NA,EYETLuminance))
+df_dem<-merge(df_dem,df_lightlevel,by.x='subjects',by.y='Subject')
+
+psych::describe(df_dem$lux)
+with(df_dem,t.test(lux~t1_site))
+with(df_dem,t.test(lux~t1_diagnosis))
+anova(lm(pd_res~lux,df_dem))
 
 ```
 
@@ -530,7 +548,7 @@ detach(df_timepoint)
   
 ```
 
-# significant associations between groups
+# significant associations between groups (per)
 
 ```{r}
 
@@ -542,9 +560,9 @@ Anova(lm,type=3)
 emtrends(lm, ~ t1_diagnosis,var='pd_res_z')
 ##--> specific to ASD
 
-lm<-lm(scale(rpd_res_response.201)~pd_res_z*t1_diagnosis,df_timepoint)
-Anova(lm,type=3)
-emtrends(lm, ~ t1_diagnosis,var='pd_res_z')
+# lm<-lm(scale(rpd_res_response.201)~pd_res_z*t1_diagnosis,df_timepoint)
+# Anova(lm,type=3)
+# emtrends(lm, ~ t1_diagnosis,var='pd_res_z')
 
 
 # BPS --> SEPR (length)
@@ -589,8 +607,7 @@ confint(contrast(emmeans(lm,  ~ t1_diagnosis),'pairwise'))
 
 ```
 
-
-# association of dependent variables (per trial)
+# association of dependent variables (regressions per trial)
 
 ```{r BPS_SEPR_association}
 
@@ -1077,7 +1094,8 @@ g1<-ggplot(plot_task_effect,aes(x=contrast,y=the.emmean))+
   scale_x_discrete(labels = NULL, breaks = NULL)+ #remove x-axis tick labels
   coord_cartesian(ylim = y_axis_limitation)+
   labs(x='contrast of stimuli',y='BPS difference (z)')
-  
+
+
 
 #SEPR -pupillary response - technical model
 lmm<-lmer(scale(rpd_res_response)~EventData_epoch+
@@ -1204,7 +1222,7 @@ dev.off() #close operation and save file
 
 ```
 
-# group differences
+# group differences in task progression
 
 ## baseline pupil size (BPS)
 
@@ -1256,7 +1274,6 @@ lmm_full<-lmer(scale(pd_res)~EventData_epoch*t1_diagnosis*stats::poly(EventCount
 
 anova(lmm_full)
 
-  
 ```
 
 ```{r BPS task progression between groups - Bayesian, eval=eval_bayes}
@@ -1591,43 +1608,109 @@ save_kable(descriptive_table_format,file=paste0(project_path,'/output/supplement
 ```{r historgram of dependent variables - per participant}
 
 grid.arrange(
-  ggplot(df_timepoint,aes(x=pd))+geom_histogram(bins=30)+labs(x='',title='BPS (mm)'),
-  ggplot(df_timepoint,aes(x=gain_pcdm))+geom_histogram(bins=30)+labs(x='',title='neural gain (z)'),
-  ggplot(df_timepoint,aes(x=rpd_auc.201))+geom_histogram(bins=30)+labs(x='',title='SEPR - standard (mm)'),
-  ggplot(df_timepoint,aes(x=rpd_auc.202))+geom_histogram(bins=30)+labs(x='',title='SEPR - pitch oddball (mm)'),
-  ggplot(df_timepoint,aes(x=rpd_auc.203))+geom_histogram(bins=30)+labs(x='',title='SEPR - length oddball (mm)'),
-  ggplot(df_timepoint,aes(x=rpd_auc.204))+geom_histogram(bins=30)+labs(x='',title='SEPR - pitch+length oddball (mm)'),
+  ggplot(df_timepoint,aes(x=pd_res))+geom_histogram(bins=30)+labs(x='',title='BPS (mm)'),
+  ggplot(df_timepoint,aes(x=rpd_res_response.201))+geom_histogram(bins=30)+labs(x='',title='SEPR - standard (mm)'),
+  ggplot(df_timepoint,aes(x=rpd_res_response.202))+geom_histogram(bins=30)+labs(x='',title='SEPR - pitch oddball (mm)'),
+  ggplot(df_timepoint,aes(x=rpd_res_response.203))+geom_histogram(bins=30)+labs(x='',title='SEPR - length oddball (mm)'),
+  ggplot(df_timepoint,aes(x=rpd_res_response.204))+geom_histogram(bins=30)+labs(x='',title='SEPR - pitch+length oddball (mm)'),
   ggplot(df_timepoint,aes(x=mmn.201))+geom_histogram(bins=30)+labs(x='',title='MMN - standard (uV)'),
   ggplot(df_timepoint,aes(x=mmn.202))+geom_histogram(bins=30)+labs(x='',title='MMN - pitch oddball (uV)'),
   ggplot(df_timepoint,aes(x=mmn.203))+geom_histogram(bins=30)+labs(x='',title='MMN - length oddball (uV)'),
   ggplot(df_timepoint,aes(x=mmn.204))+geom_histogram(bins=30)+labs(x='',title='MMN - pitch+length oddball (uV)'),
-  ncol=2)
+  ncol=3)
 
 #save to file
 tiff(file=paste0(project_path,"/output/supplements/histograms_dependentvariables_perparticipant.tiff"), # create a file in tiff format in current working directory
-  width=8, height=12, units="in", res=300, compression='lzw') #define size and resolution of the resulting figure
+  width=10, height=10, units="in", res=300, compression='lzw') #define size and resolution of the resulting figure
 
 grid.arrange(
-  ggplot(df_timepoint,aes(x=pd))+geom_histogram(bins=30)+labs(x='',title='BPS (mm)'),
-  ggplot(df_timepoint,aes(x=gain_pcdm))+geom_histogram(bins=30)+labs(x='',title='neural gain (z)'),
-  ggplot(df_timepoint,aes(x=rpd_auc.201))+geom_histogram(bins=30)+labs(x='',title='SEPR - standard (mm)'),
-  ggplot(df_timepoint,aes(x=rpd_auc.202))+geom_histogram(bins=30)+labs(x='',title='SEPR - pitch oddball (mm)'),
-  ggplot(df_timepoint,aes(x=rpd_auc.203))+geom_histogram(bins=30)+labs(x='',title='SEPR - length oddball (mm)'),
-  ggplot(df_timepoint,aes(x=rpd_auc.204))+geom_histogram(bins=30)+labs(x='',title='SEPR - pitch+length oddball (mm)'),
+  ggplot(df_timepoint,aes(x=pd_res))+geom_histogram(bins=30)+labs(x='',title='BPS (mm)'),
+  ggplot(df_timepoint,aes(x=rpd_res_response.201))+geom_histogram(bins=30)+labs(x='',title='SEPR - standard (mm)'),
+  ggplot(df_timepoint,aes(x=rpd_res_response.202))+geom_histogram(bins=30)+labs(x='',title='SEPR - pitch oddball (mm)'),
+  ggplot(df_timepoint,aes(x=rpd_res_response.203))+geom_histogram(bins=30)+labs(x='',title='SEPR - length oddball (mm)'),
+  ggplot(df_timepoint,aes(x=rpd_res_response.204))+geom_histogram(bins=30)+labs(x='',title='SEPR - pitch+length oddball (mm)'),
   ggplot(df_timepoint,aes(x=mmn.201))+geom_histogram(bins=30)+labs(x='',title='MMN - standard (uV)'),
   ggplot(df_timepoint,aes(x=mmn.202))+geom_histogram(bins=30)+labs(x='',title='MMN - pitch oddball (uV)'),
   ggplot(df_timepoint,aes(x=mmn.203))+geom_histogram(bins=30)+labs(x='',title='MMN - length oddball (uV)'),
   ggplot(df_timepoint,aes(x=mmn.204))+geom_histogram(bins=30)+labs(x='',title='MMN - pitch+length oddball (uV)'),
-  ncol=2)
+  ncol=3)
 
 dev.off() #close operation and save file
 
-
 ```
 
+### histograms of participant characteristics
+
+```{r histogram participant characteristics}
+
+fun_histogram_groups<-function(variable){
+  ggplot(df_dem,aes(x={{ variable }}, fill=t1_diagnosis))+
+    #geom_density(alpha=0.5, adjust=2)+
+    geom_histogram()+
+    scale_fill_manual(
+      name = "groups", 
+      labels = c("autistic", "non-autistic"),
+      values = custom_group_color)+
+    theme(legend.position = "none")
+}
+
+#extract legend
+g_legend<-function(x){
+  tmp <- ggplot_gtable(ggplot_build(x))
+  leg <- which(sapply(tmp$grobs, function(x) x$name) == "guide-box")
+  legend <- tmp$grobs[[leg]]
+  return(legend)}
+
+mylegend<-g_legend(ggplot(df_dem,aes(x=t1_ageyrs, fill=t1_diagnosis))+
+    geom_density(alpha=0.5, adjust=2)+
+    scale_fill_manual(
+      name = "groups", 
+      labels = c("autistic", "non-autistic"),
+      values = custom_group_color))
+
+#create grid plot
+grid.arrange(
+  arrangeGrob(
+  #standard descriptives
+  fun_histogram_groups(variable=t1_ageyrs)+labs(x="age (in years)",y=''),
+  fun_histogram_groups(variable=t1_fsiq)+labs(x="IQ",y=''),
+  fun_histogram_groups(variable=t1_viq)+labs(x="verbal IQ",y=''),
+  fun_histogram_groups(variable=t1_piq)+labs(x="perceptual IQ",y=''),
+  #data quality
+  fun_histogram_groups(variable=missing_data_trial)+labs(x="missing data per trial (%)",y=''),
+  fun_histogram_groups(variable=center_dev)+labs(x="gaze center deviation (%)",y=''),
+  ncol=2
+  ),
+  mylegend,
+  ncol=2,
+  widths = c(10,1)
+)
 
 
+#save to file
+tiff(file=paste0(project_path,"/output/supplements/histograms_participant_characteristics.tiff"), # create a file in tiff format in current working directory
+  width=11, height=8, units="in", res=300, compression='lzw') #define size and resolution of the resulting figure
 
+grid.arrange(
+  arrangeGrob(
+  #standard descriptives
+  fun_histogram_groups(variable=t1_ageyrs)+labs(x="age (in years)",y=''),
+  fun_histogram_groups(variable=t1_fsiq)+labs(x="IQ",y=''),
+  fun_histogram_groups(variable=t1_viq)+labs(x="verbal IQ",y=''),
+  fun_histogram_groups(variable=t1_piq)+labs(x="perceptual IQ",y=''),
+  #data quality
+  fun_histogram_groups(variable=missing_data_trial)+labs(x="missing data per trial (%)",y=''),
+  fun_histogram_groups(variable=center_dev)+labs(x="gaze center deviation (%)",y=''),
+  ncol=2
+  ),
+  mylegend,
+  ncol=2,
+  widths = c(10,1)
+)
+
+dev.off() #close operation and save file
+
+```
 
 
 ## descriptives per trial
@@ -1679,55 +1762,133 @@ save_kable(descriptive_table_format,file=paste0(project_path,'/output/supplement
 ```{r historgram of dependent variables - per trial}
 
 grid.arrange(
-  ggplot(df_trial,aes(x=pd))+geom_histogram(bins=30)+labs(x='',title='BPS (mm)'),
+  ggplot(df_epoch,aes(x=pd_res))+geom_histogram(bins=30)+labs(x='',title='BPS (mm)'),
   ggplot()+theme_void(),
-  ggplot(df_trial[df_trial$EventData=='201',],
-         aes(x=rpd_auc))+geom_histogram(bins=30)+labs(x='',title='SEPR - standard (mm)'),
-  ggplot(df_trial[df_trial$EventData=='202',],
-         aes(x=rpd_auc))+geom_histogram(bins=30)+labs(x='',title='SEPR - pitch oddball (mm)'),
-  ggplot(df_trial[df_trial$EventData=='203',],
-         aes(x=rpd_auc))+geom_histogram(bins=30)+labs(x='',title='SEPR - length oddball (mm)'),
-  ggplot(df_trial[df_trial$EventData=='204',],
-         aes(x=rpd_auc))+geom_histogram(bins=30)+labs(x='',title='SEPR - pitch+length oddball (mm)'),
-  ggplot(df_trial[df_trial$EventData=='201',],
+  ggplot(df_epoch[df_epoch$EventData_epoch=='201',],
+         aes(x=rpd_res_response))+geom_histogram(bins=30)+labs(x='',title='SEPR - standard (mm)'),
+  ggplot(df_epoch[df_epoch$EventData_epoch=='202',],
+         aes(x=rpd_res_response))+geom_histogram(bins=30)+labs(x='',title='SEPR - pitch oddball (mm)'),
+  ggplot(df_epoch[df_epoch$EventData_epoch=='203',],
+         aes(x=rpd_res_response))+geom_histogram(bins=30)+labs(x='',title='SEPR - length oddball (mm)'),
+  ggplot(df_epoch[df_epoch$EventData_epoch=='204',],
+         aes(x=rpd_res_response))+geom_histogram(bins=30)+labs(x='',title='SEPR - pitch+length oddball (mm)'),
+  ggplot(df_epoch[df_epoch$EventData_epoch=='201',],
          aes(x=mmn))+geom_histogram(bins=30)+labs(x='',title='MMN - standard (uV)'),
-  ggplot(df_trial[df_trial$EventData=='202',],
+  ggplot(df_epoch[df_epoch$EventData_epoch=='202',],
          aes(x=mmn))+geom_histogram(bins=30)+labs(x='',title='MMN - pitch oddball (uV)'),
-  ggplot(df_trial[df_trial$EventData=='203',],
+  ggplot(df_epoch[df_epoch$EventData_epoch=='203',],
          aes(x=mmn))+geom_histogram(bins=30)+labs(x='',title='MMN - length oddball (uV)'),
-  ggplot(df_trial[df_trial$EventData=='204',],
+  ggplot(df_epoch[df_epoch$EventData_epoch=='204',],
          aes(x=mmn))+geom_histogram(bins=30)+labs(x='',title='MMN - pitch+length oddball (uV)'),
-  ncol=2)
+  ncol=3)
 
 #save to file
 tiff(file=paste0(project_path,"/output/supplements/histograms_dependentvariables_pertrial.tiff"), # create a file in tiff format in current working directory
-  width=8, height=12, units="in", res=300, compression='lzw') #define size and resolution of the resulting figure
+  width=10, height=10, units="in", res=300, compression='lzw') #define size and resolution of the resulting figure
 
 grid.arrange(
-  ggplot(df_trial,aes(x=pd))+geom_histogram(bins=30)+labs(x='',title='BPS (mm)'),
-  ggplot()+theme_void(),
-  ggplot(df_trial[df_trial$EventData=='201',],
-         aes(x=rpd_auc))+geom_histogram(bins=30)+labs(x='',title='SEPR - standard (mm)'),
-  ggplot(df_trial[df_trial$EventData=='202',],
-         aes(x=rpd_auc))+geom_histogram(bins=30)+labs(x='',title='SEPR - pitch oddball (mm)'),
-  ggplot(df_trial[df_trial$EventData=='203',],
-         aes(x=rpd_auc))+geom_histogram(bins=30)+labs(x='',title='SEPR - length oddball (mm)'),
-  ggplot(df_trial[df_trial$EventData=='204',],
-         aes(x=rpd_auc))+geom_histogram(bins=30)+labs(x='',title='SEPR - pitch+length oddball (mm)'),
-  ggplot(df_trial[df_trial$EventData=='201',],
+  ggplot(df_epoch,aes(x=pd_res))+geom_histogram(bins=30)+labs(x='',title='BPS (mm)'),
+  ggplot(df_epoch[df_epoch$EventData_epoch=='201',],
+         aes(x=rpd_res_response))+geom_histogram(bins=30)+labs(x='',title='SEPR - standard (mm)'),
+  ggplot(df_epoch[df_epoch$EventData_epoch=='202',],
+         aes(x=rpd_res_response))+geom_histogram(bins=30)+labs(x='',title='SEPR - pitch oddball (mm)'),
+  ggplot(df_epoch[df_epoch$EventData_epoch=='203',],
+         aes(x=rpd_res_response))+geom_histogram(bins=30)+labs(x='',title='SEPR - length oddball (mm)'),
+  ggplot(df_epoch[df_epoch$EventData_epoch=='204',],
+         aes(x=rpd_res_response))+geom_histogram(bins=30)+labs(x='',title='SEPR - pitch+length oddball (mm)'),
+  ggplot(df_epoch[df_epoch$EventData_epoch=='201',],
          aes(x=mmn))+geom_histogram(bins=30)+labs(x='',title='MMN - standard (uV)'),
-  ggplot(df_trial[df_trial$EventData=='202',],
+  ggplot(df_epoch[df_epoch$EventData_epoch=='202',],
          aes(x=mmn))+geom_histogram(bins=30)+labs(x='',title='MMN - pitch oddball (uV)'),
-  ggplot(df_trial[df_trial$EventData=='203',],
+  ggplot(df_epoch[df_epoch$EventData_epoch=='203',],
          aes(x=mmn))+geom_histogram(bins=30)+labs(x='',title='MMN - length oddball (uV)'),
-  ggplot(df_trial[df_trial$EventData=='204',],
+  ggplot(df_epoch[df_epoch$EventData_epoch=='204',],
          aes(x=mmn))+geom_histogram(bins=30)+labs(x='',title='MMN - pitch+length oddball (uV)'),
-  ncol=2)
+  ncol=3)
 
 dev.off() #close operation and save file
 
 
 ```
+
+## descriptives between sites
+
+```{r supplement descriptives per site}
+
+fun_return_descriptive<-function(variable,group,rounding=2,scaling=1){
+  mean_values<-by(variable,group,function(x){round(mean(x,na.rm=T),rounding)})
+  sd_values<-by(variable,group,function(x){round(sd(x,na.rm=T),rounding)})
+  min_values<-by(variable,group,function(x){round(min(x,na.rm=T),rounding)})
+  max_values<-by(variable,group,function(x){round(max(x,na.rm=T),rounding)})
+  mean_values<-mean_values*scaling
+  sd_values<-sd_values*scaling
+  min_values<-min_values*scaling
+  max_values<-max_values*scaling
+  paste0(mean_values,'/',sd_values,' ','[',min_values,'-',max_values,']')
+}
+
+#standard descriptives
+n_group<-with(df_dem,by(subjects,t1_site,function(x){length(unique(x))}))
+gender<-with(df_dem,by(t1_sex,t1_site,function(x){paste0(table(x)[2],'/',table(x)[1])}))
+timepoints<-with(df_dem,by(timepoints,t1_site,function(x){paste0(table(x)[1],'/',table(x)[2],'/',table(x)[3])}))
+age<-with(df_dem,fun_return_descriptive(variable=t1_ageyrs,group=t1_site))
+iq<-with(df_dem,fun_return_descriptive(variable=t1_fsiq,group=t1_site))
+piq<-with(df_dem,fun_return_descriptive(variable=t1_piq,group=t1_site))
+viq<-with(df_dem,fun_return_descriptive(variable=t1_viq,group=t1_site))
+
+#data quality
+missing_data_trial<-with(df_dem,fun_return_descriptive(variable=missing_data_trial,group=t1_site,rounding=4,scaling = 100))
+center_dev_id<-with(df_dem,fun_return_descriptive(variable=center_dev,group=t1_site,rounding=4,scaling=100))
+
+#outcome measures
+pd_res<-with(df_timepoint,fun_return_descriptive(variable=pd_res,group=site))
+rpd_res_response.201<-with(df_timepoint,fun_return_descriptive(variable=rpd_res_response.201,group=site))
+rpd_res_response.202<-with(df_timepoint,fun_return_descriptive(variable=rpd_res_response.202,group=site))
+rpd_res_response.203<-with(df_timepoint,fun_return_descriptive(variable=rpd_res_response.203,group=site))
+rpd_res_response.204<-with(df_timepoint,fun_return_descriptive(variable=rpd_res_response.204,group=site))
+mmn.201<-with(df_timepoint,fun_return_descriptive(variable=mmn.201,group=site))
+mmn.202<-with(df_timepoint,fun_return_descriptive(variable=mmn.202,group=site))
+mmn.203<-with(df_timepoint,fun_return_descriptive(variable=mmn.203,group=site))
+mmn.204<-with(df_timepoint,fun_return_descriptive(variable=mmn.204,group=site))
+
+
+#names
+row_names<-c('n','gender (M/F)','timepoints (1/2/1+2)','age (in years)','IQ','perceptual IQ','verbal IQ',
+             'missing data per trial (%)',
+             'gaze center deviation (%)',
+             'BPS',
+             'SEPR - standard','SEPR - pitch','SEPR - length','SEPR - pitch + length',
+             'MMN - standard','MMN - pitch','MMN - length','MMN - pitch + length'
+             )
+
+descriptives_table<-rbind(n_group,gender,timepoints,age,iq,piq,viq,
+                          missing_data_trial,
+                          center_dev_id,
+                          pd_res,
+                          rpd_res_response.201,rpd_res_response.202,rpd_res_response.203,rpd_res_response.204,
+                          mmn.201,mmn.202,mmn.203,mmn.204
+                          )
+
+
+descriptives_table<-cbind(row_names,descriptives_table)
+
+table_sample<-descriptives_table %>%
+  kbl(caption = "Sample description between sites",
+      col.names = c('','KCL London (Tobii X-120)','CIMH Mannheim (Tobii TX-300)'),
+      row.names = F) %>%
+  kable_classic(full_width = F, html_font = "Cambria")
+
+
+descriptives_table
+
+table_sample
+
+save_kable(table_sample, file=paste0(project_path,'/output/supplements/table_sampledescription_between_sites.html'))
+
+
+
+```
+
 
 ## group comparisons per-participant
 
@@ -2079,6 +2240,60 @@ dev.off() #close operation and save file
 ```
 
 
+## regression models of significant assoication between groups as table
+
+```{r}
+
+df_timepoint$pd_res_z<-scale(df_timepoint$pd_res)
+
+
+# BPS --> SEPR (standards)
+lm<-lm(scale(rpd_res_response.201)~pd_res_z*t1_diagnosis,df_timepoint)
+
+##supplements - full table
+  row_names<-c('intercept','BPS',
+               'group','BPS x group',
+               'residuals')
+
+  table_data_model<-round(Anova(lm,type=3),3)
+  table_data_model<-cbind(row_names,table_data_model)
+
+  table_data_model
+
+  table_model<-table_data_model %>%
+    kbl(caption = "Per participant: Regression model of stimulus-evoked response (SEPR) to standards with baseline pupil size (BPS) as predictor between groups",
+        col.names = c('','Sum Sq','df','F','p'),
+        row.names = F) %>%
+    kable_classic(full_width = F, html_font = "Cambria")
+
+    save_kable(table_model, file= paste0(project_path,'/output/supplements/table_regressionmodel_SEPR_by_BPS_betweengroups.html'))
+
+
+# MMN --> SEPR (standards)
+lm<-lm(scale(rpd_res_response.201)~scale(mmn.201)*t1_diagnosis,df_timepoint)
+
+##supplements - full table
+  row_names<-c('intercept','MMN',
+               'group','MMN x group',
+               'residuals')
+
+  table_data_model<-round(Anova(lm,type=3),3)
+  table_data_model<-cbind(row_names,table_data_model)
+
+  table_data_model
+
+  table_model<-table_data_model %>%
+    kbl(caption = "Per participant: Regression model of stimulus-evoked response (SEPR) to standards with mismatch-negativity (MMN) to standards as predictor between groups",
+        col.names = c('','Sum Sq','df','F','p'),
+        row.names = F) %>%
+    kable_classic(full_width = F, html_font = "Cambria")
+
+    save_kable(table_model, file= paste0(project_path,'/output/supplements/table_regressionmodel_SEPR_by_MMN_betweengroups.html'))
+
+
+```
+
+
 ## linearity of effect of trial number (polynomial fits)
 
 ```{r linearity BPS}
@@ -2217,62 +2432,26 @@ lmm_full<-lmer(scale(pd_res)~EventData_epoch*t1_diagnosis*stats::poly(EventCount
 
 ###load saved Bayeisan posterior estimates
 load(file=paste0(project_path,'/data/Bayesian_model_BPS_twoway.Rdata')) #draws_BPS_twoway
-load(file=paste0(project_path,'/data/Bayesian_model_BPS_supp.Rdata')) #draws_BPS_supp
-load(file=paste0(project_path,'/data/Bayesian_model_SEPR_threewayinteraction.Rdata')) #draws_SEPR_threeway
-load(file=paste0(project_path,'/data/Bayesian_model_MMN_threewayinteraction.Rdata')) #draws_MMN_threeway
 
 ### for supplements
 
 #chain converge and stationary
 
 # #draws_BPS_twoway - chain converge and stationary
-var_names <- c("design_coef[1,1]" = "BPS_task_progression: autistic",
-               "design_coef[2,1]" = "BPS_task_progression: non-autistic") #define parameter names
+var_names <- c("design_coef[1,1]" = "autistic",
+               "design_coef[2,1]" = "non-autistic") #define parameter names
+
+
+#I rename the columns 
+posterior<-as.matrix(draws_BPS_twoway)
+colnames(posterior)<-c('autistic',
+                      'non-autistic')
+
 
 g1a<-mcmc_trace(draws_BPS_twoway, 
            facet_args = list(labeller = labeller(parameter = as_labeller(var_names, label_parsed))))
-g1b<-mcmc_dens(draws_BPS_twoway, 
-           facet_args = list(labeller = labeller(parameter = as_labeller(var_names, label_parsed)))) 
-
-# #draws_BPS_supp - chain converge and stationary
-var_names <- c("design_coef[1,1]" = "BPS_sequence_position: autistic",
-               "design_coef[2,1]" = "BPS_sequence_position: non-autistic") #define parameter names
-
-g2a<-mcmc_trace(draws_BPS_supp, 
-           facet_args = list(labeller = labeller(parameter = as_labeller(var_names, label_parsed))))
-g2b<-mcmc_dens(draws_BPS_supp, 
-           facet_args = list(labeller = labeller(parameter = as_labeller(var_names, label_parsed)))) 
-
-# #draws_SEPR_threeway - chain converge and stationary
-var_names <- c("group_event_coefs[1,1]" = "SEPR_trend: autistic_standard",
-               "group_event_coefs[2,1]" = "SEPR_trend: non-autistic_standard",
-               "group_event_coefs[3,1]" = "SEPR_trend: autistic_pitch",
-               "group_event_coefs[4,1]" = "SEPR_trend: non-autistic_pitch",
-               "group_event_coefs[5,1]" = "SEPR_trend: autistic_length",
-               "group_event_coefs[6,1]" = "SEPR_trend: non-autistic_length",
-               "group_event_coefs[7,1]" = "SEPR_trend: autistic_pitch+length",
-               "group_event_coefs[8,1]" = "SEPR_trend: non-autistic_pitch+length") #define parameter names
-
-g3a<-mcmc_trace(draws_SEPR_threeway, 
-           facet_args = list(labeller = labeller(parameter = as_labeller(var_names, label_parsed)),nrow=1))
-g3b<-mcmc_dens(draws_SEPR_threeway, 
-           facet_args = list(labeller = labeller(parameter = as_labeller(var_names, label_parsed)),nrow=1)) 
-
-# #draws_MMN_threeway - chain converge and stationary
-var_names <- c("group_event_coefs[1,1]" = "MMN_trend: autistic_standard",
-               "group_event_coefs[2,1]" = "MMN_trend: non-autistic_standard",
-               "group_event_coefs[3,1]" = "MMN_trend: autistic_pitch",
-               "group_event_coefs[4,1]" = "MMN_trend: non-autistic_pitch",
-               "group_event_coefs[5,1]" = "MMN_trend: autistic_length",
-               "group_event_coefs[6,1]" = "MMN_trend: non-autistic_length",
-               "group_event_coefs[7,1]" = "MMN_trend: autistic_pitch+length",
-               "group_event_coefs[8,1]" = "MMN_trend: non-autistic_pitch+length") #define parameter names
-
-g4a<-mcmc_trace(draws_MMN_threeway, 
-           facet_args = list(labeller = labeller(parameter = as_labeller(var_names, label_parsed)),nrow=1))
-g4b<-mcmc_dens(draws_MMN_threeway, 
-           facet_args = list(labeller = labeller(parameter = as_labeller(var_names, label_parsed)),nrow=1)) 
-
+g1b<-mcmc_dens(posterior, 
+           facet_args = list(labeller=ggplot2::label_parsed)) 
 
 #extract legend
 g_legend<-function(x){
@@ -2285,24 +2464,13 @@ mylegend<-g_legend(g1a)
 
 #arrange figures
 g1<-grid.arrange(g1a+theme(legend.position = 'none'),g1b,top="BPS - task progression")
-g2<-grid.arrange(g2a+theme(legend.position = 'none'),g2b,top="BPS - sequence position")
-g3<-grid.arrange(g3a+theme(legend.position = 'none'),g3b,top="SEPR trend")
-g4<-grid.arrange(g4a+theme(legend.position = 'none'),g4b,top="MMN trend")
-
-
-g_figures<-grid.arrange(
-  grid.arrange(g1,g2,ncol=2),
-  g3,g4,
-  nrow=3)
-
-
-grid.arrange(g_figures,mylegend,ncol=2,widths=c(20,1))
+grid.arrange(g1,mylegend,ncol=2,widths=c(10,1))
 
 #save to file
 tiff(file=paste0(project_path,"/output/supplements/Bayesian_chains_convergence.tiff"), # create a file in tiff format in current working directory
-  width=25, height=15, units="in", res=300, compression='lzw') #define size and resolution of the resulting figure
+  width=6, height=6, units="in", res=300, compression='lzw') #define size and resolution of the resulting figure
 
-grid.arrange(g_figures,mylegend,ncol=2,widths=c(20,1))
+grid.arrange(g1,mylegend,ncol=2,widths=c(10,1))
       
 dev.off() #close operation and save file
 
@@ -2532,17 +2700,17 @@ cov_eff_table<-cov_eff_data %>%
 ```
 
 
-## intraclass correaltion of the dependent variables
+## intraclass correlation (ICC) of the dependent variables
 
 ```{r ICC_of_dependent_variables}
 
 #select only individuals that have both waves
 subjects_with_both_waves<-df_dem$subjects[df_dem$timepoints=='wave1+2']
-df_trial_wave12<-df_trial[df_trial$subjects %in% subjects_with_both_waves,]
+df_trial_wave12<-df_epoch[df_epoch$subjects %in% subjects_with_both_waves,]
 
 #BPS
-baseline_pd_wave1<-with(df_trial_wave12[df_trial_wave12$wave=='wave1',],aggregate(pd_baseline,by=list(subjects),FUN=mean,na.rm=T))
-baseline_pd_wave2<-with(df_trial_wave12[df_trial_wave12$wave=='wave2',],aggregate(pd_baseline,by=list(subjects),FUN=mean,na.rm=T))
+baseline_pd_wave1<-with(df_trial_wave12[df_trial_wave12$wave=='wave1',],aggregate(pd_res,by=list(subjects),FUN=mean,na.rm=T))
+baseline_pd_wave2<-with(df_trial_wave12[df_trial_wave12$wave=='wave2',],aggregate(pd_res,by=list(subjects),FUN=mean,na.rm=T))
 names(baseline_pd_wave1)<-c('subjects','wave1')
 names(baseline_pd_wave2)<-c('subjects','wave2')
 
@@ -2551,45 +2719,250 @@ baseline_pd_waves<-merge(baseline_pd_wave1,baseline_pd_wave2,by='subjects')
 cor.test(baseline_pd_waves$wave1,baseline_pd_waves$wave2)
 
 psych::ICC(baseline_pd_waves[,-1])
-###--> ICC: 0.88 [0.81, 0.93]
+###--> ICC: 0.82 [0.73, 0.88]
 
+ICC_g1<-ggplot(baseline_pd_waves,aes(x=wave1,y=wave2))+geom_point()+
+  labs(x= "BPS at timepoint 1 (in mm)",y="BPS at timepoint 2 (in mm)")
 
 #SEPR
-rpd204_wave1<-with(df_trial_wave12[df_trial_wave12$EventData_epoch=='204' & df_trial_wave12$wave=='wave1',],aggregate(rpd_auc.204,by=list(subjects),FUN=mean,na.rm=T))
-rpd204_wave2<-with(df_trial_wave12[df_trial_wave12$EventData_epoch=='204' & df_trial_wave12$wave=='wave2',],aggregate(rpd_auc.204,by=list(subjects),FUN=mean,na.rm=T))
+rpd201_wave1<-with(df_trial_wave12[df_trial_wave12$EventData_epoch=='201' & df_trial_wave12$wave=='wave1',],aggregate(rpd_res_response,by=list(subjects),FUN=mean,na.rm=T))
+rpd201_wave2<-with(df_trial_wave12[df_trial_wave12$EventData_epoch=='201' & df_trial_wave12$wave=='wave2',],aggregate(rpd_res_response,by=list(subjects),FUN=mean,na.rm=T))
 
-names(rpd204_wave1)<-c('subjects','wave1')
-names(rpd204_wave2)<-c('subjects','wave2')
+names(rpd201_wave1)<-c('subjects','wave1')
+names(rpd201_wave2)<-c('subjects','wave2')
 
-rpd_waves<-merge(rpd204_wave1,rpd204_wave2,by='subjects')
+rpd_waves<-merge(rpd201_wave1,rpd201_wave2,by='subjects')
 
 cor.test(rpd_waves$wave1,rpd_waves$wave2)
 ##--> r =.23
 
 psych::ICC(rpd_waves[,-1])
-###--> ICC: 0.37 [-0.01, 0.60]
+###--> ICC: 0.27 [0.06, 0.46]
+
+ICC_g2<-ggplot(rpd_waves,aes(x=wave1,y=wave2))+geom_point()+
+  labs(x= "SEPR at timepoint 1 (in z)",y="SEPR at timepoint 2 (in z)")+
+  xlim(-0.01,0.02)+
+  ylim(-0.01,0.02)
 
 
-names(df_timepoint)
+grid.arrange(ICC_g1,ICC_g2)
 
-#NG
-gain_wave1<-with(df_timepoint[df_timepoint$wave=='wave1',],aggregate(gain_pcdm,by=list(subjects),FUN=mean,na.rm=T))
-gain_wave2<-with(df_timepoint[df_timepoint$wave=='wave2',],aggregate(gain_pcdm,by=list(subjects),FUN=mean,na.rm=T))
 
-names(gain_wave1)<-c('subjects','wave1')
-names(gain_wave2)<-c('subjects','wave2')
+#save to file
+tiff(file=paste0(project_path,"/output/supplements/ICC_scatterplot.tiff"), # create a file in tiff format in 
+  width=5, height=8, units="in", res=300, compression='lzw') #define size and resolution of the resulting figure
 
-gain_waves<-merge(gain_wave1,gain_wave2,by='subjects')
+grid.arrange(ICC_g1,ICC_g2)
 
-cor.test(gain_waves$wave1,gain_waves$wave2)
-##--> r =.23
 
-psych::ICC(gain_waves[,-1])
-###--> ICC: 0.37 [0.02, 0.59]
+dev.off() #close operation and save file
+
+
 
 ```
 
 For participants with both measurement timepoints, we estimated a relative stability of BPS (intraclass correlation, ICC = 0.88 [0.81, 0.93]), while SEPR (ICC = 0.37 [-0.01, 0.60]) and NG (ICC = 0.37 [0.02, 0.59]) were variable across timepoints. EEG data was only available at one timepoint. 
 
+## trials retained after preprocessing
 
+```{r retained trials}
+
+##BPS
+mean(table(df_epoch$id[!is.na(df_epoch$pd_res)]),rm.na=T)
+length(df_epoch$pd_res[!is.na(df_epoch$pd_res)])/(nrow(df_timepoint)*1400)
+
+length(df_epoch$pd_res[!is.na(df_epoch$pd_res) & df_epoch$t1_diagnosis=='ASD'])/(table(df_timepoint$t1_diagnosis)[1]
+*1400)
+length(df_epoch$pd_res[!is.na(df_epoch$pd_res) & df_epoch$t1_diagnosis=='Control'])/(table(df_timepoint$t1_diagnosis)[2]
+*1400)
+
+chisq.test(is.na(df_epoch$pd_res),df_epoch$t1_diagnosis)
+
+#SEPR
+mean(table(df_epoch$id[!is.na(df_epoch$rpd_res_response)]),rm.na=T)
+length(df_epoch$rpd_res_response[!is.na(df_epoch$rpd_res_response)])/(nrow(df_timepoint)*1400)
+
+length(df_epoch$rpd_res_response[!is.na(df_epoch$rpd_res_response) & df_epoch$t1_diagnosis=='ASD'])/(table(df_timepoint$t1_diagnosis)[1]
+*1400)
+length(df_epoch$rpd_res_response[!is.na(df_epoch$rpd_res_response) & df_epoch$t1_diagnosis=='Control'])/(table(df_timepoint$t1_diagnosis)[2]
+*1400)
+
+chisq.test(is.na(df_epoch$rpd_res_response),df_epoch$t1_diagnosis)
+
+
+```
+
+
+
+## missing data with task progression - estimate of screen attention
+
+```{r screen attention}
+
+# EventCounter_epoch, video_time
+
+g_screenattention<-ggplot(df_epoch,aes(x=EventCounter_epoch,missing_data_trial*100,group=t1_diagnosis,color=t1_diagnosis))+
+  geom_smooth()+
+  coord_cartesian(ylim = c(0,50))+
+  scale_color_manual(name = "groups", labels = c("autistic", "non-autistic"),values = custom_group_color)+
+  labs(x='trial number',y='missing pupil data (%)')
+
+#plot in markdown
+g_screenattention
+
+#save to file
+tiff(file=paste0(project_path,"/output/supplements/missing_gaze_data_as_screen_attention.tiff"), # create a file in tiff format in current working directory
+     width=5, height=2.5, units="in", res=300, compression='lzw') #define size and resolution of the resulting figure
+
+g_screenattention
+
+dev.off()
+
+
+
+g_videoattendance<-ggplot(df_epoch,aes(x=EventCounter_epoch,center_dev*100,group=t1_diagnosis,color=t1_diagnosis))+
+  geom_smooth()+
+  coord_cartesian(ylim = c(0,50))+
+  scale_color_manual(name = "groups", labels = c("autistic", "non-autistic"),values = custom_group_color)+
+  labs(x='trial number',y='gaze center deviation (%)')
+
+#plot in markdown
+g_videoattendance
+
+#save to file
+tiff(file=paste0(project_path,"/output/supplements/missing_gaze_data_as_gaze_center_deviation.tiff"), # create a file in tiff format in current working directory
+     width=5, height=2.5, units="in", res=300, compression='lzw') #define size and resolution of the resulting figure
+
+g_videoattendance
+
+dev.off()
+
+```
+
+
+
+
+## density plots of data point - supplement figure 3 (task effects)
+
+```{r desnity plots individual data - task effects}
+
+
+#BPS
+df_epoch_complete<-df_epoch[complete.cases(df_epoch$pd_res),]
+g1<-ggplot(df_epoch_complete,aes(x=pd_res,group=EventData_epoch,fill=EventData_epoch))+
+  geom_histogram(bins=100)+
+  scale_fill_manual(name='stimulus', #relabel legend
+                    values = custom_condition_colors[c(1,3,2,4)], 
+                    labels=c("201" = "standard", "202" = "pitch oddball", 
+                             "203" = "length oddball ", "204" = "pitch & length oddball"))+
+  labs(x='BPS (in mm)')
+
+#SEPR
+df_epoch_complete<-df_epoch[complete.cases(df_epoch$rpd_res_response),]
+g2<-ggplot(df_epoch_complete,aes(x=rpd_res_response,group=EventData_epoch,fill=EventData_epoch))+
+  geom_histogram(bins=100)+
+  scale_fill_manual(name='stimulus', #relabel legend
+                    values = custom_condition_colors[c(1,3,2,4)], 
+                    labels=c("201" = "standard", "202" = "pitch oddball", 
+                             "203" = "length oddball ", "204" = "pitch & length oddball"))+
+  xlim(-0.5,0.5)+
+  labs(x='SEPR (in mm)')
+
+#MMN
+df_epoch_complete<-df_epoch[complete.cases(df_epoch$mmn),]
+g3<-ggplot(df_epoch_complete,aes(x=mmn,group=EventData_epoch,fill=EventData_epoch))+
+  geom_histogram(bins=100)+
+  scale_fill_manual(name='stimulus', #relabel legend
+                    values = custom_condition_colors[c(1,3,2,4)], 
+                    labels=c("201" = "standard", "202" = "pitch oddball", 
+                             "203" = "length oddball ", "204" = "pitch & length oddball"))+
+  xlim(-50,50)+
+  labs(x='MMN (in uV)')
+
+#BPS - progression
+df_epoch_complete<-df_epoch[complete.cases(df_epoch$pd_res),]
+g4<-ggplot(df_epoch_complete,aes(x=EventCounter_epoch,y=pd_res))+
+  geom_hex(bins=300)+
+  labs(x='task progression (trial)',y='baseline pupil size (BPS, mm)')
+  
+
+#SEPR - progression
+df_epoch_complete<-df_epoch[complete.cases(df_epoch$rpd_res_response),]
+g5<-ggplot(df_epoch_complete,aes(x=EventCounter_epoch,y=rpd_res_response))+
+  geom_hex(bins=300)+
+  labs(x='task progression (trial)',y='pupillary response (SEPR, mm)')
+  
+
+#SEPR - progression
+df_epoch_complete<-df_epoch[complete.cases(df_epoch$mmn),]
+g6<-ggplot(df_epoch_complete,aes(x=EventCounter_epoch,y=mmn))+
+  geom_hex(bins=200)+
+  labs(x='task progression (trial)',y='mismatch negativity (MMN, uV)')
+
+#extract legend
+g_legend<-function(x){
+  tmp <- ggplot_gtable(ggplot_build(x))
+  leg <- which(sapply(tmp$grobs, function(x) x$name) == "guide-box")
+  legend <- tmp$grobs[[leg]]
+  return(legend)}
+
+mylegend_contrast1<-g_legend(g3)
+mylegend_contrast2<-g_legend(g6)
+
+
+      
+###composite figure layout
+lay <- rbind(c(1,1,2,2,3,3,7),
+             c(4,4,5,5,6,6,8))
+
+
+#plot in markdown
+grid.arrange(g1+theme(legend.position="none"),
+             g2+theme(legend.position="none"),
+             g3+theme(legend.position="none"),
+             g4,
+             g5,
+             g6,
+             mylegend_contrast1,nullGrob(),layout_matrix=lay)
+
+#save to file
+tiff(file=paste0(project_path,"/output/supplements/task_effects_individual_data_points_.tiff"), # create a file in tiff format in 
+  width=12, height=8, units="in", res=300, compression='lzw') #define size and resolution of the resulting figure
+
+grid.arrange(g1+theme(legend.position="none"),
+             g2+theme(legend.position="none"),
+             g3+theme(legend.position="none"),
+             g4,
+             g5,
+             g6,
+             mylegend_contrast1,nullGrob(),layout_matrix=lay)
+
+dev.off() #close operation and save file
+
+
+```
+
+## plot random intercepts
+
+```{r random intercepts}
+
+df_epoch_complete<-df_epoch[complete.cases(df_epoch$pd_res),]
+lmm<-lmer(scale(pd_res)~EventData_epoch+
+              (1|id),data=df_epoch_complete)
+
+
+# Extract random intercepts
+ranef_data <- ranef(lmm)$id
+ranef_data$id <- rownames(ranef_data)
+
+# Plot using ggplot2
+ggplot(ranef_data, aes(x = reorder(id, `(Intercept)`), y = `(Intercept)`)) +
+  geom_point() +
+  coord_flip() +
+  yaxis_text(on=FALSE)+
+  labs(title = "Random Intercepts by Subject",
+       x = "Subject",
+       y = "Intercept")
+
+
+```
 

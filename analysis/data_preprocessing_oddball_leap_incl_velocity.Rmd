@@ -19,6 +19,13 @@ editor_options:
 
 - specify location of data = data_path
 - load required packages
+- definition of saved data sets:
+  - 1. mmn_leap_merged_04072024.Rds - merged data before epochs
+  - 2. mmn_leap_epoched_04072024.Rds - epoched data before gaze & pupil preprocessing
+  - 3. mmn_leap_epochs_preprocessed_11072024.Rds - preprocessed data on per sample level to test new metrics
+  - 4. mmn_leap_epochs_agg_11072024.Rds - preprocessed data aggregated per trial (state: July 2024)
+  - 5. mmn_leap_pd_final_dfs_epoch_19072024 - final data used in analysis script
+  
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
@@ -360,7 +367,7 @@ saveRDS(df_list_epoch, file = "C:/Users/nico/Desktop/mmn_leap_epoched_04072024.R
 
 ```
 
-## WORK IN PROGRESS - load epoched data
+## load epoched data
 
 ```{r, eval=T}
 
@@ -384,7 +391,7 @@ df_list_epoch<-pblapply(df_list_epoch,fun_required_necessary_data)
 
 ```
 
-## WORK in Progress - load trial data
+## load trial data
 
 ```{r, eval=F}
 
@@ -982,6 +989,17 @@ df_oddball_validate$rpd<-df_oddball_validate$pd-df_oddball_validate$rpd_low
 
 ```
 
+## visualize baseline data
+
+- not relevant to current analysis
+- data is not related to AIMS-LEAP data
+
+```{r, eval=F}
+
+ggplot2::ggplot(df_baseline_sega,aes(x=block_counter,y=pd,group=block_counter))+geom_boxplot()+facet_wrap(~phase)
+
+```
+
 ## extracts sample data
 
 - extract 1% of random data
@@ -1170,7 +1188,7 @@ dev.off()
 ```
 
 
-# --> test preprocessed data
+# --> test preprocessed and epoched data
 
 - see that signal is preserved
 - LTI filter on epoched data improces signal to noise ratio
@@ -1181,22 +1199,19 @@ dev.off()
 
 ```{r, eval=F}
 
-df_list_epoch<-readRDS("Z:/nico/backup_data/data_AIMS/mmn_leap_epochs_preprocessed_11072024/mmn_leap_epochs_preprocessed_11072024.Rds")
-#copied to NAS archive: Z:\nico\backup_data\data_AIMS\mmn_leap_epochs_preprocessed_11072024
-
-###--> takes 20 minutes
+df_list_epoch<-readRDS('C:/Users/nico/Desktop/mmn_leap_epochs_preprocessed_11072024.Rds')
 
 #select 70 random epochs of each individual ~ 5% of data
 number_of_trials<-140
 df_epoch_sample<-pblapply(df_list_epoch,function(x){x<-x[sample(1:1399,number_of_trials)]})
 #df_epoch_sample<-pblapply(df_list_split,function(x){x<-x[sample(1:1399,number_of_trials)]})
 
-rm(df_list_epoch)
+#rm(df_list_epoch)
 #rm(df_list_split)
 
 ```
 
-## select single trial
+### select single trial
 
 - tests LTI filter
 - visual examination
@@ -1208,12 +1223,10 @@ rm(df_list_epoch)
  #visualize: single trial plot
   df_singletrial<-df_epoch_sample[[sample(1:343,1)]][[sample(1:number_of_trials,1)]]
   head(df_singletrial$EventData_epoch,1)
-  ggplot(df_singletrial)+
-    geom_point(aes(x=time_epoch,y=rpd),color='blue')
-   
+  ggplot(df_singletrial,aes(x=time_epoch,y=rpd))+geom_smooth(method="lm",                                                                         formula=y ~ poly(x, 9))
   
   #uses a gamma-shape linear time invariant filter 
-  mean_rpd_response<-0.1
+  mean_rpd_response<-0.01
   fun_LTI_filter<-function(x,opt_shape=6.65,opt_rate=7.68,scaling_factor=mean_rpd_response){
   
     #check whether trial is empty
@@ -1270,39 +1283,21 @@ rm(df_list_epoch)
   }
 
     df_singletrial<-fun_LTI_filter(df_singletrial)
+
+    ggplot(df_singletrial)+
+    geom_smooth(aes(x=time_epoch,y=rpd),color='blue')+
+    geom_smooth(aes(x=time_epoch,y=rpd_res),color='red')+
+    labs(title='BLUE = pupillary response, RED = LTI filtered pupillary response')
+   
+    ggplot(df_singletrial)+
+    geom_point(aes(x=time_epoch,y=rpd),color='blue')+
+    geom_point(aes(x=time_epoch,y=predict_rpd_event),color='red')+
+    geom_point(aes(x=time_epoch,y=predict_rpd_epoch),color='green')+
+    geom_point(aes(x=time_epoch,y=rpd_res),color='black')
       
 ```
 
-## export plot single trial (supplement oddball leap paper)
-
-```{r}
-
-g1<-ggplot(df_singletrial)+
-    geom_smooth(aes(x=time_epoch,y=rpd),color='blue')+
-    geom_smooth(aes(x=time_epoch,y=rpd_res),color='red')+
-    labs(title='Sample trial. BLUE = pupillary response, RED = LTI-filtered pupillary response',
-         y='pupil size (z)',x='epoch duration (s)')
-   
-g2<-ggplot(df_singletrial)+
-  geom_point(aes(x=time_epoch,y=predict_rpd_event),color='orange')+
-  geom_point(aes(x=time_epoch,y=predict_rpd_epoch),color='green')+
-  labs(title='Simulated data. RED = expected pupillary response, GREEN = LTI-filtered pupillary response',
-     y='pupil size (z)',x='epoch duration (s)')
-
-
-
-#save to file
-tiff(file=paste0(project_path,"/output/supplements/sample_trial_LTIfiltering_CPF.tiff"), # create a file in tiff format in 
-  width=9, height=7, units="in", res=300, compression='lzw') #define size and resolution of the resulting figure
-
-  grid.arrange(g1,g2)
-
-    
-    dev.off()
-    
-```
-
-## plot pupillary response
+## plot pupillary response --> USED FOR FIGURE 2
 
 - use downsampling to make plotting feasible
 - based on fraction of data 
@@ -1322,11 +1317,13 @@ fun_downsample<-function(x,rounding_factor=downsampling_to_decimal_digits){
   
 }
 
+
 df_downsample<-pblapply(df_epoch_sample,function(x){x<-lapply(x,fun_downsample)})
 
 #bind to data.frame
 df_downsample<-pblapply(df_downsample,rbindlist)
 df_downsample<-rbindlist(df_downsample)
+
 
 df_downsample<-df_downsample[df_downsample$time_epoch_down<=4,]
 df_downsample$oddball<-ifelse(df_downsample$EventData_epoch=='201',F,T)
@@ -1334,6 +1331,7 @@ df_downsample$oddball<-ifelse(df_downsample$EventData_epoch=='201',F,T)
 ggplot(df_downsample,aes(x=time_epoch,y=rpd,color=oddball))+
   geom_smooth(method="lm",                                                            
               formula=y~-1+x+I(x^2)+I(x^3)+I(x^4)+I(x^5))
+
 
 
 #save to file
@@ -1366,7 +1364,10 @@ dev.off()
 
 ```
 
-## apply/test deconvolution with LTI filter
+
+## test deconvolution with LTI filter
+
+
 
 ```{r, eval=F}
 
@@ -1435,47 +1436,24 @@ df_epoch_sample<-pblapply(df_epoch_sample,function(x){x<-lapply(x,fun_LTI_filter
 df_test<-pblapply(df_epoch_sample,rbindlist)
 df_test<-rbindlist(df_test)
 
-
-```
-
-## estimate fit - overlap of corrected and uncorrected data
-
-```{r}
-
-# Example vectors
-completed_data<-complete.cases(df_test$rpd) & complete.cases(df_test$rpd_res)
-
-observed <- df_test$rpd[completed_data] # your empirical values
-predicted <- df_test$rpd_res[completed_data]   # your model's predicted values
-
-# R² calculation
-r_squared <- 1 - sum((observed - predicted)^2) / sum((observed - mean(observed))^2)
-##--> R² - corrected and observed values = 0.67
-r_squared
-
-```
-
-
-## visualize LTI filter on sample data
-
-```{r}
 hist(df_test$rpd)
 summary(df_test$rpd)
 median(df_test$rpd,na.rm=T)
 
 
-df_sample<-df_test[sample(1:nrow(df_test),nrow(df_test)/100),]
+df_sample<-df_test[sample(1:nrow(df_test),nrow(df_test)/10),]
 df_sample$oddball<-ifelse(df_sample$EventData_epoch=='201',F,T)
 df_sample<-df_sample[df_sample$time_epoch<=4,]
 ggplot(df_sample)+
     geom_smooth(aes(x=time_epoch,y=rpd,linetype=oddball),color='blue')+
-    geom_smooth(aes(x=time_epoch,y=rpd_res,linetype=oddball),color='red')+
+    geom_smooth(aes(x=time_epoch,y=res_rpd,linetype=oddball),color='red')+
   labs(title='BLUE = pupillary response, RED = LTI filtered pupillary response')
     ###--> LTI filtered response with stronger response
     
+
+
+      
 ```
-
-
 
 # extract epoch aggregated data 
 
@@ -1487,13 +1465,37 @@ ggplot(df_sample)+
 ```{r, eval=F}
 
 #load preprocessed epoched data
-df_list_epoch<-readRDS("Z:/nico/backup_data/data_AIMS/mmn_leap_epochs_preprocessed_11072024/mmn_leap_epochs_preprocessed_11072024.Rds")
-
+df_list_epoch<-readRDS('C:/Users/nico/Desktop/mmn_leap_epochs_preprocessed_11072024.Rds')
 
 #user-defined functions - rename a variable at position 
 fun_rename<-function(x,variable_position,new_name){
   names(x)[variable_position]<-new_name
   return(x)}
+
+## function to retrieve pupillary change velocity response - INCREASE ####
+fun_rpd_velocity_increase<-function(x){
+
+  y<-x[x$time_epoch<=1.25,] #restrict to increase time frame
+  rpd_velocity_increase<-mean(diff(y$rpd)/diff(y$time_epoch),na.rm=T)
+  return(rpd_velocity_increase)
+
+}
+
+#apply function to list (TRIAL split list)
+list_rpd_velocity_increase<-pblapply(df_list_epoch,function(x,y){sapply(x,fun_rpd_velocity_increase)})
+
+
+## function to retrieve pupillary change velocity response - RECOVERY ####
+fun_rpd_velocity_recovery<-function(x){
+
+  y<-x[x$time_epoch>1.25 & x$time_epoch<2.5,] #restrict to increase time frame
+  rpd_velocity_recovery<-mean(diff(y$rpd)/diff(y$time_epoch),na.rm=T)
+  return(rpd_velocity_recovery)
+
+}
+
+#apply function to list (TRIAL split list)
+list_rpd_velocity_recovery<-pblapply(df_list_epoch,function(x,y){sapply(x,fun_rpd_velocity_recovery)})
 
 ## function to retrieve pupillary response ####
 fun_trial_rpd_response<-function(x){
@@ -1519,23 +1521,19 @@ list_rpd_response<-pblapply(df_list_epoch,function(x,y){sapply(x,fun_trial_rpd_r
 # define parameters of response
 opt_shape<-6.65
 opt_rate<-7.68
-scaling_factor<-1/100 #adapt scaling factor *10 - to match amplitude of response
+scaling_factor<-1/500 #adapt scaling factor *10 - to match amplitude of response
 
 fun_trial_rpd_res<-function(x){
 
-  scaling_factor_trial<-ifelse(x$EventData %in% c("202","203","204"),scaling_factor,scaling_factor*10)
-  
   # impulse of each event within epoch
   x$predict_rpd_event<-dgamma(x$time_event,
                            shape = opt_shape, 
-                           rate = opt_rate)*scaling_factor_trial
-  
-  scaling_factor_trial<-ifelse(x$EventData_epoch %in% c("202","203","204"),scaling_factor,scaling_factor*10)
+                           rate = opt_rate)*scaling_factor
   
   #impulse of event traced in epoch
   x$predict_rpd_epoch<-dgamma(x$time_epoch,
                            shape = opt_shape, 
-                           rate = opt_rate)*scaling_factor_trial
+                           rate = opt_rate)*scaling_factor
 
   #define residual pupil response - that is corrected for pupillary impulses of other trials
   x$rpd_res<-with(x,rpd-predict_rpd_event+predict_rpd_epoch)
@@ -1544,8 +1542,6 @@ fun_trial_rpd_res<-function(x){
   return(rpd_res_response)
 
 }
-
-test<-df_list_epoch[[1]][[1]]
 
 #apply function to list (TRIAL split list)
 list_rpd_res_response<-pblapply(df_list_epoch,function(x,y){sapply(x,fun_trial_rpd_res)})
@@ -1636,9 +1632,17 @@ list_trial<-pbmapply(data.frame,list_trial,list_missing_data,SIMPLIFY=F)
 list_trial<-pblapply(list_trial,fun_rename,variable_position=ncol(list_trial[[1]]),
                      new_name='missing_data_trial') #rename LAST variable
 
+list_trial<-pbmapply(data.frame,list_trial,list_rpd_velocity_increase,SIMPLIFY=F)
+list_trial<-pblapply(list_trial,fun_rename,variable_position=ncol(list_trial[[1]]),
+                     new_name='rpd_velocity_increase') #rename LAST variable
+
+list_trial<-pbmapply(data.frame,list_trial,list_rpd_velocity_recovery,SIMPLIFY=F)
+list_trial<-pblapply(list_trial,fun_rename,variable_position=ncol(list_trial[[1]]),
+                     new_name='rpd_velocity_recovery') #rename LAST variable
+
 df_epoch<-rbindlist(list_trial)
 
-saveRDS(df_epoch,file="C:/Users/nico/Desktop/mmn_leap_epochs_agg_11072024.Rds",compress = F)
+#saveRDS(df_epoch,file="C:/Users/nico/Desktop/mmn_leap_epochs_agg_11072024.Rds",compress = F)
 
 rm(df_list_epoch)
 
@@ -1648,7 +1652,7 @@ rm(df_list_epoch)
 
 ```{r}
 
-df_epoch<-readRDS(file="C:/Users/nico/Desktop/mmn_leap_epochs_agg_11072024.Rds")
+#df_epoch<-readRDS(file="C:/Users/nico/Desktop/mmn_leap_epochs_agg_11072024.Rds")
 
 
 df_epoch$wave<-substr(df_epoch$id,14,18)
@@ -1803,7 +1807,11 @@ df_timepoint<-merge(df_timepoint,df_missingdata,by='id')
 
 ```{r}
 
-df_et_vars<-aggregate(df_epoch[,c('center_dev','pd','pd_baseline','pd_res','rpd_response')],by=list(df_epoch$subjects),FUN=mean,na.rm=T)
+# on per participant aggregated ####
+df_et_vars<-aggregate(df_epoch[,c('center_dev','pd','pd_baseline',
+                                  'pd_res','rpd_response',
+                                  'rpd_velocity_increase','rpd_velocity_recovery')],
+                      by=list(df_epoch$subjects),FUN=mean,na.rm=T)
 
 df_et_vars_rpd<-aggregate(df_epoch[,c('rpd_response')],
                           by=list(df_epoch$subjects,df_epoch$EventData_epoch),FUN=mean,na.rm=T)
@@ -1814,28 +1822,60 @@ df_et_vars_rpd_res<-aggregate(df_epoch[,c('rpd_res_response')],
                               by=list(df_epoch$subjects,df_epoch$EventData_epoch),FUN=mean,na.rm=T)
 
 df_et_vars_rpd_res<-reshape(df_et_vars_rpd_res, idvar = "Group.1", timevar = "Group.2", direction = "wide") #long to wide format
+
+df_et_vars_rpd_velocity_increase<-aggregate(df_epoch[,c('rpd_velocity_increase')],
+                              by=list(df_epoch$subjects,df_epoch$EventData_epoch),FUN=mean,na.rm=T)
+
+df_et_vars_rpd_velocity_increase<-reshape(df_et_vars_rpd_velocity_increase, idvar = "Group.1", timevar = "Group.2", direction = "wide") #long to wide format
+
+df_et_vars_rpd_velocity_recovery<-aggregate(df_epoch[,c('rpd_velocity_recovery')],
+                              by=list(df_epoch$subjects,df_epoch$EventData_epoch),FUN=mean,na.rm=T)
+
+df_et_vars_rpd_velocity_recovery<-reshape(df_et_vars_rpd_velocity_recovery, idvar = "Group.1", timevar = "Group.2", direction = "wide") #long to wide format
+
 names(df_et_vars)[1]<-'subjects'
 names(df_et_vars_rpd)[1]<-'subjects'
 names(df_et_vars_rpd_res)[1]<-'subjects'
+names(df_et_vars_rpd_velocity_increase)[1]<-'subjects'
+names(df_et_vars_rpd_velocity_recovery)[1]<-'subjects'
 
 df_dem<-merge(df_dem,df_et_vars,by='subjects')
 df_dem<-merge(df_dem,df_et_vars_rpd,by='subjects')
 df_dem<-merge(df_dem,df_et_vars_rpd_res,by='subjects')
+df_dem<-merge(df_dem,df_et_vars_rpd_velocity_increase,by='subjects')
+df_dem<-merge(df_dem,df_et_vars_rpd_velocity_recovery,by='subjects')
 
-df_et_vars<-aggregate(df_epoch[,c('center_dev','pd','pd_baseline','pd_res')],
+
+###on df_timepoint ####
+df_et_vars<-aggregate(df_epoch[,c('center_dev','pd','pd_baseline',
+                                  'pd_res','rpd_velocity_increase','rpd_velocity_recovery')],
                       by=list(df_epoch$id),FUN=mean,na.rm=T)
 
 df_et_vars_rpd<-aggregate(df_epoch[,c('rpd_response')],by=list(df_epoch$id,df_epoch$EventData_epoch),FUN=mean,na.rm=T)
 df_et_vars_rpd<-reshape(df_et_vars_rpd, idvar = "Group.1", timevar = "Group.2", direction = "wide") #long to wide format
+
 df_et_vars_rpd_res<-aggregate(df_epoch[,c('rpd_res_response')],by=list(df_epoch$id,df_epoch$EventData_epoch),FUN=mean,na.rm=T)
 df_et_vars_rpd_res<-reshape(df_et_vars_rpd_res, idvar = "Group.1", timevar = "Group.2", direction = "wide") #long to wide format
+
+df_et_vars_rpd_velocity_increase<-aggregate(df_epoch[,c('rpd_velocity_increase')],
+                                            by=list(df_epoch$id,df_epoch$EventData_epoch),FUN=mean,na.rm=T)
+df_et_vars_rpd_velocity_increase<-reshape(df_et_vars_rpd_velocity_increase, idvar = "Group.1", timevar = "Group.2", direction = "wide") #long to wide format
+
+df_et_vars_rpd_velocity_recovery<-aggregate(df_epoch[,c('rpd_velocity_recovery')],by=list(df_epoch$id,df_epoch$EventData_epoch),FUN=mean,na.rm=T)
+df_et_vars_rpd_velocity_recovery<-reshape(df_et_vars_rpd_velocity_recovery, idvar = "Group.1", timevar = "Group.2", direction = "wide") #long to wide format
+
 names(df_et_vars)[1]<-'id'
 names(df_et_vars_rpd)[1]<-'id'
 names(df_et_vars_rpd_res)[1]<-'id'
+names(df_et_vars_rpd_velocity_increase)[1]<-'id'
+names(df_et_vars_rpd_velocity_recovery)[1]<-'id'
+
 
 df_timepoint<-merge(df_timepoint,df_et_vars,by='id')
 df_timepoint<-merge(df_timepoint,df_et_vars_rpd,by='id')
 df_timepoint<-merge(df_timepoint,df_et_vars_rpd_res,by='id')
+df_timepoint<-merge(df_timepoint,df_et_vars_rpd_velocity_increase,by='id')
+df_timepoint<-merge(df_timepoint,df_et_vars_rpd_velocity_recovery,by='id')
 
 ```
 
@@ -1964,12 +2004,15 @@ df_epoch<-df_epoch[df_epoch$EventCounter_epoch<=1400,]
 
 ```{r save final df}
 
+#epoched data
+# save(df_epoch,df_dem,df_timepoint,
+#      file="C:/Users/nico/PowerFolders/project_oddball_LEAP/data/mmn_leap_pd_final_dfs_epoch_19072024")
+
+#epoched data + velocity
 save(df_epoch,df_dem,df_timepoint,
-     file="C:/Users/nico/PowerFolders/project_oddball_LEAP/data/mmn_leap_pd_final_dfs_epoch_19072024")
+     file="C:/Users/nico/PowerFolders/project_oddball_LEAP/data/mmn_leap_pd_final_dfs_epoch_16092024")
 
 ```
-
-
 
 # test main models
 
@@ -1978,6 +2021,23 @@ save(df_epoch,df_dem,df_timepoint,
   - pd_res: pupil size mean of trial but corrected for pupil response pulses (LTI filter) 
   - rpd_resopnse: mean relative pupil size between 750ms and 1750ms
   - rpd_res_response: rpd_response but applied LTI filter on pupillary responses
+  
+## association of dependent variables
+
+```{r}
+
+with(df_timepoint,cor.test(pd_res,rpd_velocity_increase.201))
+with(df_timepoint,cor.test(pd_res,rpd_velocity_increase.202))
+with(df_timepoint,cor.test(pd_res,rpd_velocity_increase.203))
+with(df_timepoint,cor.test(pd_res,rpd_velocity_increase.204))
+
+with(df_timepoint,cor.test(pd_res,rpd_velocity_recovery.201))
+with(df_timepoint,cor.test(pd_res,rpd_velocity_recovery.202))
+with(df_timepoint,cor.test(pd_res,rpd_velocity_recovery.203))
+with(df_timepoint,cor.test(pd_res,rpd_velocity_recovery.204))
+
+```
+
   
 ## task condition effects
 
@@ -2097,6 +2157,70 @@ BF_BIC
 
 ```
 
+### velocity increase
+
+- 204 > 201 & 203
+- 202 > 201 & 203
+
+```{r}
+
+lmm<-lmer(scale(rpd_velocity_increase)~EventData_epoch+
+            (1|id),data=df_epoch[rpd_velocity_increase>-1 & rpd_velocity_increase<1],)
+
+summary(lmm)
+anova(lmm)
+emmeans(lmm,~EventData_epoch)
+confint(contrast(emmeans(lmm,~EventData_epoch),'pairwise'))
+###--> 201 & 203 < 202 & 204
+
+r2_nakagawa(lmm)  
+  
+#BIC Bayes Factor
+lmm_ML<-lmer(scale(rpd_velocity_increase)~EventData_epoch+
+              (1|id),data=df_epoch[rpd_velocity_increase>-1 & rpd_velocity_increase<1],REML=F)
+
+null_lmm_ML <- lmer(scale(rpd_velocity_increase)~1+
+                  (1|id),data=df_epoch[rpd_velocity_increase>-1 & rpd_velocity_increase<1],REML=F)
+
+BF_BIC <- exp((BIC(null_lmm_ML) - BIC(lmm_ML))/2)  
+BF_BIC  
+
+
+```
+
+
+### velocity recovery
+
+- low effect evidence
+
+```{r}
+
+lmm<-lmer(scale(rpd_velocity_recovery)~EventData_epoch+
+            (1|id),data=df_epoch[rpd_velocity_recovery>-1 & rpd_velocity_recovery<1],)
+
+summary(lmm)
+anova(lmm)
+emmeans(lmm,~EventData_epoch)
+confint(contrast(emmeans(lmm,~EventData_epoch),'pairwise'))
+###--> 203 > 201 & 202 & 204
+
+r2_nakagawa(lmm)  
+  
+#BIC Bayes Factor
+lmm_ML<-lmer(scale(rpd_velocity_recovery)~EventData_epoch+
+              (1|id),data=df_epoch[rpd_velocity_recovery>-1 & rpd_velocity_recovery<1],REML=F)
+
+null_lmm_ML <- lmer(scale(rpd_velocity_recovery)~1+
+                  (1|id),data=df_epoch[rpd_velocity_recovery>-1 & rpd_velocity_recovery<1],REML=F)
+
+BF_BIC <- exp((BIC(null_lmm_ML) - BIC(lmm_ML))/2)  
+BF_BIC  
+
+
+```
+
+
+
 ## task progression effect
 
 ### BPS
@@ -2167,6 +2291,57 @@ confint(contrast(emmeans(lmm,~EventCounter_epoch,at=list(EventCounter_epoch =   
 
 ###--> no change with task progression
   
+
+```
+
+## velocity increase
+
+```{r}
+
+###polynomial fit of trial counter
+    linear_fit<-lmer(scale(rpd_velocity_increase)~scale(EventCounter_epoch)+
+            (1|id),data=df_epoch,REML=F)
+  
+    quadratic_fit<-lmer(scale(rpd_velocity_increase)~stats::poly(scale(EventCounter_epoch),2)+
+                (1|id),data=df_epoch,REML=F)
+  
+    cubic_fit<-lmer(scale(rpd_velocity_increase)~stats::poly(scale(EventCounter_epoch),3)+
+                 (1|id),data=df_epoch,REML=F)
+    
+    anova(linear_fit,quadratic_fit,cubic_fit)
+    ###--> linear fit
+
+    
+lmm<-lmer(scale(rpd_velocity_increase)~EventCounter_epoch+
+              (1|id),data=df_epoch)
+  
+anova(lmm)
+
+
+```
+
+## velocity recovery
+
+```{r}
+
+###polynomial fit of trial counter
+    linear_fit<-lmer(scale(rpd_velocity_recovery)~scale(EventCounter_epoch)+
+            (1|id),data=df_epoch,REML=F)
+  
+    quadratic_fit<-lmer(scale(rpd_velocity_recovery)~stats::poly(scale(EventCounter_epoch),2)+
+                (1|id),data=df_epoch,REML=F)
+  
+    cubic_fit<-lmer(scale(rpd_velocity_recovery)~stats::poly(scale(EventCounter_epoch),3)+
+                 (1|id),data=df_epoch,REML=F)
+    
+    anova(linear_fit,quadratic_fit,cubic_fit)
+    ###--> linear fit
+
+    
+lmm<-lmer(scale(rpd_velocity_recovery)~EventCounter_epoch+
+              (1|id),data=df_epoch)
+  
+anova(lmm)
 
 ```
 
@@ -2286,3 +2461,16 @@ confint(contrast(emmeans(lmm,~EventData_epoch),'pairwise'))
 
 
 
+
+### velocity increase
+
+```{r}
+
+#MAIN MODEL - pupillary velocity by group - random intercept
+lmm_REML<-lmer(scale(rpd_velocity_increase)~EventData_epoch*t1_diagnosis*EventCounter_epoch+
+            (1|id),data=df_epoch[rpd_velocity_increase>-1 & rpd_velocity_increase<1,])
+            
+#fixed effect significances
+anova(lmm_REML)
+
+```
